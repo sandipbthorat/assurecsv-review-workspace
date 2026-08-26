@@ -1,0 +1,25 @@
+DOCUMENT: System Information
+Revision: 1.0
+Approval Status: Approved
+Date: 2026-08-12
+System Name: NovaQMS
+Application Version: 2.4
+Vendor: Acme Cloud Systems
+Hosting Model: SaaS
+Environment: Production-US
+Business Owner: Director, Quality Systems
+Technical Owner: Enterprise Applications
+Quality Owner: CSV Lead
+Site: North America Quality Operations
+
+Intended Use: NovaQMS is used by trained Quality Operations personnel to create, route, approve, retain, and report regulated CAPA and nonconformance quality records. It affects quality records and manufacturing disposition decisions and creates electronic records and electronic signatures used to satisfy QMS requirements.
+
+Inputs: CAPA details, nonconformance records, investigation data, approvals, and attachments.
+Processing: Configured quality workflows route investigations, risk evaluations, actions, and approval decisions.
+Outputs: Approved quality records, overdue action reports, audit trail reports, and PDF record copies.
+Interfaces: NovaQMS transfers employee identity and role data from the corporate identity service through a nightly API and sends approved disposition status to MES.
+Dependencies: Corporate single sign-on, vendor-managed database, email notification service.
+
+GxP Applicability: Applicable. NovaQMS maintains quality records used in regulated manufacturing decisions.
+Part 11 Applicability: Applicable. Electronic signatures are used for final quality approval.
+

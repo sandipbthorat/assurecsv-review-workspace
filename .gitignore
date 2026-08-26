@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+.coverage
+htmlcov/
+.venv/
+.streamlit/secrets.toml
+data/reviewer_feedback.json
+data/reviewer_feedback.tmp
+data/reviews/

@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="AI-assisted computerized system validation review and human decision workspace">
+    <title>AssureCSV — Review &amp; Redlines Workspace</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Primary navigation">
+        <div class="brand" aria-label="AssureCSV">
+          <span class="brand-mark" aria-hidden="true">A</span>
+          <span><strong>Assure</strong><b>CSV</b></span>
+        </div>
+
+        <button class="new-review-button" id="new-review" type="button">
+          <span aria-hidden="true">＋</span>
+          New package review
+        </button>
+
+        <nav class="nav-stack" id="main-nav">
+          <p class="nav-label">Review workspace</p>
+          <button class="nav-item active" data-view="overview" type="button">
+            <span class="nav-icon" aria-hidden="true">⌂</span>
+            Executive Summary
+          </button>
+          <button class="nav-item" data-view="findings" type="button">
+            <span class="nav-icon" aria-hidden="true">!</span>
+            Findings <span class="nav-count" id="findings-count">—</span>
+          </button>
+          <button class="nav-item" data-view="documents" type="button">
+            <span class="nav-icon" aria-hidden="true">▤</span>
+            Documents <span class="nav-count" id="documents-count">—</span>
+          </button>
+          <button class="nav-item" data-view="traceability" type="button">
+            <span class="nav-icon" aria-hidden="true">↔</span>
+            Traceability
+          </button>
+          <button class="nav-item" data-view="redlines" type="button">
+            <span class="nav-icon" aria-hidden="true">±</span>
+            Redlines <span class="nav-count" id="redlines-count">—</span>
+          </button>
+          <button class="nav-item" data-view="decisions" type="button">
+            <span class="nav-icon" aria-hidden="true">✓</span>
+            Review Decisions <span class="nav-count" id="decisions-count">—</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-spacer"></div>
+        <div class="local-note">
+          <span class="status-dot" aria-hidden="true"></span>
+          <div><strong>Local controlled record</strong><span>Documents stay on this device</span></div>
+        </div>
+        <div class="sidebar-footer">
+          <span>Human decision required</span>
+          <strong>v0.3</strong>
+        </div>
+      </aside>
+
+      <main class="main-panel">
+        <header class="topbar">
+          <div class="header-context">
+            <p class="breadcrumb" id="breadcrumb">VALIDATION REVIEW WORKSPACE</p>
+            <h1 id="page-title">New validation package</h1>
+            <p class="run-context" id="run-context"></p>
+          </div>
+          <div class="topbar-actions">
+            <span class="status-badge neutral hidden" id="review-status"></span>
+            <button class="export-button hidden" id="export-menu" type="button" aria-haspopup="menu" aria-expanded="false">
+              Export review <span aria-hidden="true">⌄</span>
+            </button>
+          </div>
+        </header>
+
+        <section class="workspace" id="workspace" aria-live="polite"></section>
+      </main>
+    </div>
+
+    <input id="file-input" type="file" multiple accept=".pdf,.docx,.xlsx,.xlsm,.csv,.tsv,.txt,.md,.json,.xml,.html,.htm,.yaml,.yml" hidden>
+
+    <div class="export-popover hidden" id="export-popover" role="menu" aria-label="Review exports">
+      <button type="button" data-export="report" role="menuitem"><span>Export Review Report</span><small>Controlled HTML summary and detail</small></button>
+      <button type="button" data-export="findings" role="menuitem"><span>Export Findings</span><small>Structured findings CSV</small></button>
+      <button type="button" data-export="redline" role="menuitem"><span>Export Redlined Document</span><small>Selected document and accepted changes</small></button>
+      <button type="button" data-export="decisions" role="menuitem"><span>Export Reviewer Decision Log</span><small>Human disposition history CSV</small></button>
+      <button type="button" data-export="traceability" role="menuitem"><span>Export Traceability Report</span><small>Finding-to-evidence CSV</small></button>
+      <button type="button" data-export="json" role="menuitem"><span>Export Structured Record</span><small>Complete review JSON</small></button>
+    </div>
+
+    <div class="drawer-scrim hidden" id="drawer-scrim"></div>
+    <aside class="finding-drawer hidden" id="finding-drawer" aria-label="Finding detail" aria-hidden="true"></aside>
+
+    <dialog class="unsaved-dialog" id="unsaved-dialog">
+      <h2>Unsaved recommendation changes</h2>
+      <p>You have unsaved changes to this reviewer decision.</p>
+      <div class="dialog-actions">
+        <button class="primary-button" id="unsaved-save" type="button">Save</button>
+        <button class="secondary-button" id="unsaved-discard" type="button">Discard</button>
+        <button class="text-button" id="unsaved-cancel" type="button">Cancel</button>
+      </div>
+    </dialog>
+
+    <div class="toast hidden" id="toast" role="status"></div>
+    <script src="/review-utils.js" defer></script>
+    <script src="/app.js" defer></script>
+  </body>
+</html>

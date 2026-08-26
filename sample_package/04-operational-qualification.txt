@@ -1,0 +1,63 @@
+DOCUMENT: Operational Qualification Protocol and Execution
+Revision: 1.0
+Approval Status: Executed
+System Name: NovaQMS
+Application Version: 2.3
+Environment: Validation-US
+
+OQ-001 Authentication through SSO
+Related Requirement: URS-001
+Objective: Verify an active employee can authenticate through corporate SSO.
+Precondition: Active test account in Validation-US.
+Step: Open NovaQMS and authenticate with the active account.
+Expected Result: The NovaQMS dashboard is displayed for the authenticated identity.
+Actual Result: Dashboard displayed for test account QS_TESTER_01.
+Evidence: Attachment OQ-001-E1, screenshot showing system banner, account, and timestamp.
+Result: Pass
+
+OQ-002 Segregation of duties
+Related Requirement: URS-002
+Related Risk: RA-001
+Objective: Verify that an originator cannot provide final approval.
+Precondition: Test record CAPA-VAL-102 created by QS_TESTER_01.
+Step: Attempt final approval while signed in as QS_TESTER_01.
+Expected Result: Approval is rejected and the message "Originator cannot provide final approval" is displayed.
+Actual Result: Approval was rejected and the specified message was displayed.
+Evidence: Attachment OQ-002-E1 showing CAPA-VAL-102, signed-in account, and error message.
+Result: Pass
+
+OQ-004 Session timeout
+Related Requirement: URS-004
+Related Risk: RA-004
+Objective: Verify the configured inactivity timeout.
+Step: Authenticate, remain inactive for 30 minutes, and attempt to open a record.
+Expected Result: The user is signed out after 30 minutes and must authenticate again.
+Actual Result: User was signed out at 30 minutes.
+Evidence: Attachment OQ-004-E1 session log.
+Result: Pass
+
+OQ-006 MES interface nominal transfer
+Related Requirement: URS-006
+Related Risk: RA-003
+Objective: Verify a normal approved disposition transfer.
+Step: Approve disposition record DISP-VAL-44 and inspect the MES staging record.
+Expected Result: Result is as expected.
+Actual Result: DISP-VAL-44 was present in MES staging.
+Evidence: Attachment OQ-006-E1 transfer and destination logs.
+Result: Pass
+
+OQ-008 Electronic signature approval
+Related Requirement: URS-008
+Objective: Verify final approval captures the electronic signature.
+Step: Final-approve CAPA-VAL-107 using the assigned Quality Approver account.
+Expected Result: Signer identity, meaning "Approval", and date/time are displayed on the approved record.
+Actual Result: The signature manifestation was displayed.
+Evidence: Attachment OQ-008-E1 approved record copy.
+Result: Pass
+
+Deviation DEV-004
+Severity: Major
+Status: Open
+Description: The signature manifestation is absent from the exported PDF record copy for CAPA-VAL-107.
+Impact: Record-copy impact assessment pending.
+

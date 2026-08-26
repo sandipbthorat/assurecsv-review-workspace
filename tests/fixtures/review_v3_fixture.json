@@ -1,0 +1,82 @@
+{
+  "schema_version": "3.0",
+  "review_id": "REV-20260824-TEST01",
+  "review_run_id": "REV-20260824-TEST01",
+  "generated_at": "2026-08-24T12:00:00+00:00",
+  "package_name": "MARS validation package test fixture",
+  "review_provenance": {
+    "review_agent_version": "AssureCSV test fixture",
+    "prompt_rule_set_version": "CSV-Review-Rules-test",
+    "knowledge_base_version": "Not Available",
+    "procedure_policy_baseline": "Not Available"
+  },
+  "detailed_document_review": [
+    {"document_name": "MARS_Validation_Summary.txt", "document_id": "DOC-001", "document_type": "Validation Summary Report", "revision": "1.0"},
+    {"document_name": "MARS_OQ_Protocol.txt", "document_id": "DOC-002", "document_type": "Operational Qualification", "revision": "2.0"},
+    {"document_name": "MARS_URS.txt", "document_id": "DOC-003", "document_type": "User Requirements Specification", "revision": "3.0"}
+  ],
+  "metrics": {"documents": 3},
+  "findings": [
+    {
+      "finding_id": "F-001", "severity": "Critical", "category": "Validation Evidence", "status": "Open",
+      "title": "Unresolved failed critical test contradicts release conclusion",
+      "observation": "The validation conclusion states that all acceptance criteria were met despite an unresolved failed critical test case.",
+      "source_text": "Validation conclusion: all acceptance criteria were met. OQ-044 Result: Fail; Status: Open.",
+      "impact": "Release could be approved without evidence that a critical control operates as intended.",
+      "suggested_redline": "Validation release is not supported until OQ-044 is resolved and successfully retested.",
+      "document": "MARS_Validation_Summary.txt", "section": "Validation Conclusion", "confidence_score": 98,
+      "related_documents": ["MARS_Validation_Summary.txt", "MARS_OQ_Protocol.txt"]
+    },
+    {
+      "finding_id": "F-002", "severity": "Major", "category": "Deviation Handling", "status": "Accepted",
+      "title": "Unexpected result closure criteria are undefined",
+      "observation": "The OQ protocol does not define required handling and closure criteria for unexpected test results.",
+      "source_text": "Unexpected results must be linked to a controlled deviation or defect.",
+      "impact": "Validation exceptions may be closed without documented impact assessment.",
+      "suggested_redline": "Unexpected results shall be documented, assessed for validation impact, dispositioned, and linked to a controlled deviation prior to protocol closure.",
+      "document": "MARS_OQ_Protocol.txt", "section": "6", "confidence_score": 96,
+      "related_documents": ["MARS_OQ_Protocol.txt"]
+    },
+    {
+      "finding_id": "F-003", "severity": "Major", "category": "Cross-Document Inconsistency", "status": "Needs SME Review",
+      "title": "Session timeout differs across controlled documents",
+      "observation": "The URS specifies 15 minutes while the OQ acceptance criterion specifies 30 minutes.",
+      "source_text": "URS-010: 15 minutes. OQ-010: 30 minutes.",
+      "impact": "Testing may verify the wrong approved security behavior.",
+      "suggested_redline": "Use the approved session timeout consistently in the URS, configuration baseline, and OQ.",
+      "document": "MARS_URS.txt / MARS_OQ_Protocol.txt", "section": "URS-010 / OQ-010", "confidence_score": 94,
+      "related_documents": ["MARS_URS.txt", "MARS_OQ_Protocol.txt"]
+    },
+    {
+      "finding_id": "F-004", "severity": "Minor", "category": "Configuration Management", "status": "Modified",
+      "title": "Controlled configuration baseline is not identified",
+      "observation": "The protocol references system configuration but does not identify the controlled baseline used during execution.",
+      "source_text": "Verify the system configuration.",
+      "impact": "The tested configuration cannot be reconciled to the released baseline.",
+      "suggested_redline": "Verify the approved configuration baseline and record its identifier.",
+      "modified_recommendation": "Verify configuration baseline CFG-MARS-2.0 and attach the executed comparison report.",
+      "document": "MARS_OQ_Protocol.txt", "section": "Prerequisites", "confidence_score": 88,
+      "related_documents": ["MARS_OQ_Protocol.txt"]
+    },
+    {
+      "finding_id": "F-005", "severity": "Minor", "category": "Acceptance Criteria", "status": "Rejected",
+      "title": "Acceptance wording may be ambiguous",
+      "observation": "The result is described as appropriate without an observable threshold.",
+      "source_text": "The response time shall be appropriate.",
+      "impact": "Execution decisions may be subjective.",
+      "suggested_redline": "The response time shall not exceed two seconds.",
+      "document": "MARS_URS.txt", "section": "URS-021", "confidence_score": 73,
+      "related_documents": ["MARS_URS.txt"]
+    },
+    {
+      "finding_id": "F-006", "severity": "Observation", "category": "Editorial", "status": "Deferred",
+      "title": "Repeated prerequisite text could be consolidated",
+      "observation": "Consider consolidating repeated prerequisite statements to improve protocol readability.",
+      "source_text": "Confirm tester training before execution.",
+      "impact": "The repetition does not affect validation adequacy but increases review effort.",
+      "suggested_redline": "Consolidate common prerequisites in the protocol prerequisite section.",
+      "document": "MARS_OQ_Protocol.txt", "section": "Multiple sections", "confidence_score": 65,
+      "related_documents": ["MARS_OQ_Protocol.txt"]
+    }
+  ]
+}

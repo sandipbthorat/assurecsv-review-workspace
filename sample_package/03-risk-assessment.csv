@@ -1,0 +1,11 @@
+Document,Risk Assessment
+Revision,1.1
+Approval Status,Approved
+System Name,NovaQMS
+Application Version,2.4
+Risk ID,Failure Mode,Cause,Impact,Existing Control,Risk Rating,Requirement,Verification
+RA-001,Unauthorized user approves a CAPA,Incorrect role assignment,Invalid quality decision,Role based access and segregation of duties,High,URS-002,OQ-002
+RA-002,Audit trail omits a critical record change,Misconfiguration,Loss of data attribution and incomplete quality record,Audit trail configuration and quarterly review,High,URS-003,OQ-009
+RA-003,Approved disposition is not transferred to MES,Interface interruption,Manufacturing acts on stale disposition,Retry queue notification and daily reconciliation,High,URS-006,OQ-006
+RA-004,Session remains active on an unattended workstation,Timeout misconfiguration,Unauthorized access,Configured inactivity timeout,Medium,URS-004,OQ-004
+
