@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local web server for AssureCSV.
+"""Local web server for CSVQualReviewer.
 
 The application deliberately uses the Python standard library so a reviewer can
 run it in a controlled environment without a JavaScript build chain.
@@ -9,11 +9,14 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import os
+import re
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import sys
 from urllib.parse import unquote, urlparse
+from uuid import uuid4
 
 from csv_reviewer import review_package
 from csv_reviewer.feedback import FeedbackStore
@@ -29,16 +32,25 @@ from csv_reviewer.review_store import (
 ROOT = Path(__file__).resolve().parent
 STATIC_ROOT = ROOT / "static"
 SAMPLE_ROOT = ROOT / "sample_package"
-MAX_REQUEST_BYTES = 32 * 1024 * 1024
+SERVICE_NAME = "CSVQualReviewer"
+SERVICE_VERSION = "1.0.0"
+# A 200 MB decoded intake can be roughly 267 MB once represented as base64 JSON.
+MAX_REQUEST_BYTES = 275 * 1024 * 1024
 FEEDBACK_STORE = FeedbackStore(ROOT / "data" / "reviewer_feedback.json")
 REVIEW_STORE = ReviewStore(ROOT / "data" / "reviews")
 
 
-class AssureCSVHandler(BaseHTTPRequestHandler):
-    server_version = "AssureCSV/0.3"
+class CSVQualReviewerHandler(BaseHTTPRequestHandler):
+    server_version = f"{SERVICE_NAME}/{SERVICE_VERSION}"
+
+    def _correlation_id(self) -> str:
+        if not hasattr(self, "correlation_id"):
+            supplied = self.headers.get("X-Correlation-ID", "").strip()
+            self.correlation_id = supplied if re.fullmatch(r"[A-Za-z0-9._:-]{8,128}", supplied) else str(uuid4())
+        return self.correlation_id
 
     def log_message(self, fmt: str, *args: object) -> None:
-        sys.stdout.write(f"[{self.log_date_time_string()}] {fmt % args}\n")
+        sys.stdout.write(f"[{self.log_date_time_string()}] [{self._correlation_id()}] {fmt % args}\n")
 
     def _headers(self, status: HTTPStatus, content_type: str, length: int | None = None) -> None:
         self.send_response(status)
@@ -47,7 +59,12 @@ class AssureCSVHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(length))
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
+        self.send_header("X-Correlation-ID", self._correlation_id())
+        self.send_header("X-Robots-Tag", "noindex, nofollow")
         self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()")
+        self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+        self.send_header("Cross-Origin-Resource-Policy", "same-origin")
         self.send_header("Cache-Control", "no-store" if self.path.startswith("/api/") else "no-cache")
         self.send_header(
             "Content-Security-Policy",
@@ -78,7 +95,15 @@ class AssureCSVHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
         path = urlparse(self.path).path
         if path == "/api/health":
-            self._json({"status": "ok", "service": "AssureCSV", "version": "0.3.0"})
+            self._json(
+                {
+                    "status": "ok",
+                    "service": SERVICE_NAME,
+                    "version": SERVICE_VERSION,
+                    "review_mode": "human-in-the-loop",
+                    "persistence": "atomic-local-records",
+                }
+            )
             return
         if path == "/api/sample":
             files = [
@@ -204,21 +229,31 @@ class AssureCSVHandler(BaseHTTPRequestHandler):
             return
 
 
+class CSVQualReviewerServer(ThreadingHTTPServer):
+    """Thread-per-request server with fast, deterministic shutdown semantics."""
+
+    allow_reuse_address = True
+    daemon_threads = True
+
+
 def main() -> None:
-    host = "127.0.0.1"
-    port = 8765
+    host = os.environ.get("CSVQUALREVIEWER_HOST", "127.0.0.1")
+    try:
+        port = int(os.environ.get("CSVQUALREVIEWER_PORT", "8765"))
+    except ValueError:
+        raise SystemExit("CSVQUALREVIEWER_PORT must be an integer.") from None
     if len(sys.argv) > 1:
         try:
             port = int(sys.argv[1])
         except ValueError:
             raise SystemExit("Usage: python3 app.py [port]") from None
-    server = ThreadingHTTPServer((host, port), AssureCSVHandler)
-    print(f"AssureCSV is available at http://{host}:{port}")
+    server = CSVQualReviewerServer((host, port), CSVQualReviewerHandler)
+    print(f"CSVQualReviewer is available at http://{host}:{port}")
     print("Press Ctrl+C to stop.")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopping AssureCSV.")
+        print("\nStopping CSVQualReviewer.")
     finally:
         server.server_close()
 
