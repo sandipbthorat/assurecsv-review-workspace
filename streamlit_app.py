@@ -1,4 +1,4 @@
-"""AssureCSV Streamlit Community Cloud entry point."""
+"""CSVQualReviewer Streamlit Community Cloud entry point."""
 
 from __future__ import annotations
 
@@ -45,8 +45,8 @@ DECISION_OPTIONS = (
 
 
 st.set_page_config(
-    page_title="AssureCSV — Validation Review Workspace",
-    page_icon="🛡️",
+    page_title="CSVQualReviewer — AI Document Review",
+    page_icon="◉",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -155,7 +155,7 @@ def finding_badges(finding: dict[str, Any]) -> str:
 def session_store() -> ReviewStore:
     if "store_token" not in st.session_state:
         st.session_state.store_token = uuid4().hex
-    directory = Path(tempfile.gettempdir()) / "assurecsv-streamlit" / st.session_state.store_token
+    directory = Path(tempfile.gettempdir()) / "csvqualreviewer-streamlit" / st.session_state.store_token
     return ReviewStore(directory)
 
 
@@ -299,7 +299,7 @@ def report_html(report: dict[str, Any]) -> bytes:
     )
     content = f"""<!doctype html><html><head><meta charset="utf-8"><title>{esc(report['package_name'])} Review Report</title>
     <style>body{{font:14px/1.55 Arial,sans-serif;color:#17231e;max-width:1050px;margin:40px auto;padding:0 24px}}h1,h2,h3{{font-family:Georgia,serif}}table{{width:100%;border-collapse:collapse}}th,td{{border:1px solid #ccd5d0;padding:8px;text-align:left}}article{{border:1px solid #ccd5d0;padding:18px;margin:18px 0;break-inside:avoid}}.label{{font-size:11px;font-weight:bold;color:#52645b;letter-spacing:.08em}}.ai{{background:#f3f7f5;padding:12px}}.human{{background:#eef5ff;padding:12px}}</style></head><body>
-    <p class="label">ASSURECSV CONTROLLED REVIEW REPORT</p><h1>{esc(report['package_name'])}</h1>
+    <p class="label">CSVQUALREVIEWER CONTROLLED REVIEW REPORT</p><h1>{esc(report['package_name'])}</h1>
     <p><strong>Review Run:</strong> {esc(report['review_id'])}<br><strong>Status:</strong> {esc(report['review_workflow']['status'])}<br><strong>Package Readiness:</strong> {esc(report['review_workflow']['package_readiness'])}</p>
     <h2>Review provenance</h2><table>{provenance_rows}</table><h2>Documents reviewed</h2><ul>{document_rows}</ul>
     <h2>Executive summary</h2><p>{esc(report.get('executive_assessment', {}).get('basis', 'Not Available'))}</p>
@@ -335,7 +335,7 @@ def unified_redline(finding: dict[str, Any]) -> str:
 
 def render_sidebar(report: dict[str, Any] | None) -> str:
     st.sidebar.markdown(
-        '<div class="brand"><span class="brand-mark">A</span><strong>Assure<b>CSV</b></strong></div>',
+        '<div class="brand"><span class="brand-mark">D</span><strong>Docu<b>Mind</b></strong></div>',
         unsafe_allow_html=True,
     )
     if report:
@@ -385,7 +385,7 @@ def render_upload() -> None:
     st.markdown('<div class="eyebrow">AI-ASSISTED INDEPENDENT QUALITY REVIEW</div>', unsafe_allow_html=True)
     st.title("Turn a validation package into a defensible decision record.")
     st.markdown(
-        '<p class="hero-copy">AssureCSV connects findings to source evidence, review basis, risk, proposed wording, and explicit human disposition. Uploaded source documents are never silently overwritten.</p>',
+        '<p class="hero-copy">CSVQualReviewer connects findings to source evidence, review basis, risk, proposed wording, and explicit human disposition. Uploaded source documents are never silently overwritten.</p>',
         unsafe_allow_html=True,
     )
     st.markdown("")
@@ -397,12 +397,14 @@ def render_upload() -> None:
                 "Upload the complete validation package",
                 type=["pdf", "docx", "xlsx", "xlsm", "csv", "tsv", "txt", "md", "json", "xml", "html", "htm", "yaml", "yml"],
                 accept_multiple_files=True,
-                help="Up to 75 documents. Files are processed by the deterministic review engine.",
+                help="One primary document plus up to 20 supporting documents. Files are processed by the deterministic review engine.",
             )
             start_col, sample_col = st.columns(2)
             if start_col.button("Start independent review", type="primary", width="stretch"):
                 if not files:
                     st.error("Add at least one validation document before starting the review.")
+                elif len(files) > 21:
+                    st.error("Add one primary document and no more than 20 supporting documents.")
                 else:
                     with st.spinner("Building the validation evidence graph…"):
                         try:
