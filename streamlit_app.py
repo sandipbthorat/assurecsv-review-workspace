@@ -335,7 +335,7 @@ def unified_redline(finding: dict[str, Any]) -> str:
 
 def render_sidebar(report: dict[str, Any] | None) -> str:
     st.sidebar.markdown(
-        '<div class="brand"><span class="brand-mark">D</span><strong>Docu<b>Mind</b></strong></div>',
+        '<div class="brand"><span class="brand-mark">Q</span><strong>CSVQual<b>Reviewer</b></strong></div>',
         unsafe_allow_html=True,
     )
     if report:
