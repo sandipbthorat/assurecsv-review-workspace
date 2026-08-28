@@ -14,8 +14,8 @@ from .feedback import apply_feedback_precedents
 from .models import Document, Finding, SEVERITIES, SEVERITY_ORDER, add_finding
 
 
-REVIEW_AGENT_VERSION = "AssureCSV deterministic assurance engine v0.3.0"
-REVIEW_RULE_SET_VERSION = "CSV-Review-Rules-v0.3.0"
+REVIEW_AGENT_VERSION = "CSVQualReviewer deterministic assurance engine v1.0.0"
+REVIEW_RULE_SET_VERSION = "CSVQualReviewer-Review-Rules-v1.0.0"
 
 
 DOCUMENT_CLASSIFIERS: dict[str, tuple[str, ...]] = {

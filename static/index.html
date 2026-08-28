@@ -3,73 +3,96 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="AI-assisted computerized system validation review and human decision workspace">
-    <title>AssureCSV — Review &amp; Redlines Workspace</title>
+    <meta name="description" content="CSVQualReviewer AI-assisted document review workspace">
+    <meta name="theme-color" content="#07111f">
+    <title>CSVQualReviewer — AI Document Review</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
     <div class="app-shell">
       <aside class="sidebar" aria-label="Primary navigation">
-        <div class="brand" aria-label="AssureCSV">
-          <span class="brand-mark" aria-hidden="true">A</span>
-          <span><strong>Assure</strong><b>CSV</b></span>
+        <div class="brand" aria-label="CSVQualReviewer">
+          <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+          <span class="brand-copy"><strong>CSVQualReviewer</strong><small>AI Document Review</small></span>
         </div>
 
-        <button class="new-review-button" id="new-review" type="button">
-          <span aria-hidden="true">＋</span>
-          New package review
-        </button>
-
         <nav class="nav-stack" id="main-nav">
-          <p class="nav-label">Review workspace</p>
-          <button class="nav-item active" data-view="overview" type="button">
+          <button class="nav-item active" data-view="home" type="button">
             <span class="nav-icon" aria-hidden="true">⌂</span>
-            Executive Summary
+            Home
           </button>
-          <button class="nav-item" data-view="findings" type="button">
-            <span class="nav-icon" aria-hidden="true">!</span>
-            Findings <span class="nav-count" id="findings-count">—</span>
+
+          <p class="nav-label">Review workspace</p>
+          <button class="nav-item" data-view="overview" type="button">
+            <span class="nav-icon" aria-hidden="true">♧</span>
+            My Reviews <span class="nav-count" id="reviews-count">12</span>
           </button>
           <button class="nav-item" data-view="documents" type="button">
             <span class="nav-icon" aria-hidden="true">▤</span>
-            Documents <span class="nav-count" id="documents-count">—</span>
+            All Documents <span class="nav-count subtle" id="documents-count">—</span>
           </button>
-          <button class="nav-item" data-view="traceability" type="button">
-            <span class="nav-icon" aria-hidden="true">↔</span>
-            Traceability
+          <button class="nav-item" id="new-review" data-view="upload" type="button">
+            <span class="nav-icon" aria-hidden="true">⇩</span>
+            Upload Document <span class="nav-add" aria-hidden="true">＋</span>
           </button>
-          <button class="nav-item" data-view="redlines" type="button">
-            <span class="nav-icon" aria-hidden="true">±</span>
-            Redlines <span class="nav-count" id="redlines-count">—</span>
+          <button class="nav-item" data-view="chat" type="button">
+            <span class="nav-icon" aria-hidden="true">◌</span>
+            Chat with CSVQualReviewer
           </button>
-          <button class="nav-item" data-view="decisions" type="button">
-            <span class="nav-icon" aria-hidden="true">✓</span>
-            Review Decisions <span class="nav-count" id="decisions-count">—</span>
+          <button class="nav-item" data-view="findings" type="button">
+            <span class="nav-icon" aria-hidden="true">◷</span>
+            Findings <span class="nav-count subtle" id="findings-count">—</span>
           </button>
+          <button class="nav-item" data-view="history" type="button">
+            <span class="nav-icon" aria-hidden="true">↶</span>
+            Run History
+          </button>
+          <button class="nav-item" data-view="feedback" type="button">
+            <span class="nav-icon" aria-hidden="true">⌁</span>
+            Feedback &amp; Analytics
+          </button>
+
+          <p class="nav-label">Reference library</p>
+          <button class="nav-item" data-view="references" type="button"><span class="nav-icon" aria-hidden="true">▱</span>All References</button>
+          <button class="nav-item" data-view="templates" type="button"><span class="nav-icon" aria-hidden="true">▣</span>Templates</button>
+          <button class="nav-item" data-view="sops" type="button"><span class="nav-icon" aria-hidden="true">♧</span>SOPs</button>
+          <button class="nav-item" data-view="golden" type="button"><span class="nav-icon" aria-hidden="true">▧</span>Golden Reports</button>
+          <button class="nav-item" data-view="guidance" type="button"><span class="nav-icon" aria-hidden="true">▤</span>Guidance Documents</button>
+
+          <p class="nav-label">Administration</p>
+          <button class="nav-item" data-view="org-admin" type="button"><span class="nav-icon" aria-hidden="true">⚙</span>Review Administrator</button>
+          <button class="nav-item" data-view="platform-admin" type="button"><span class="nav-icon" aria-hidden="true">⚙</span>Platform Administrator</button>
         </nav>
 
         <div class="sidebar-spacer"></div>
-        <div class="local-note">
-          <span class="status-dot" aria-hidden="true"></span>
-          <div><strong>Local controlled record</strong><span>Documents stay on this device</span></div>
-        </div>
-        <div class="sidebar-footer">
-          <span>Human decision required</span>
-          <strong>v0.3</strong>
-        </div>
       </aside>
 
       <main class="main-panel">
         <header class="topbar">
-          <div class="header-context">
-            <p class="breadcrumb" id="breadcrumb">VALIDATION REVIEW WORKSPACE</p>
-            <h1 id="page-title">New validation package</h1>
+          <button class="topbar-icon sidebar-toggle" id="sidebar-toggle" type="button" aria-label="Toggle navigation">☰</button>
+          <label class="global-search" for="global-search">
+            <span aria-hidden="true">⌕</span>
+            <input id="global-search" type="search" placeholder="Search documents, findings, users…" autocomplete="off">
+            <kbd>⌘K</kbd>
+          </label>
+
+          <div class="header-context sr-only" aria-live="polite">
+            <p class="breadcrumb" id="breadcrumb">CSVQUALREVIEWER WORKSPACE</p>
+            <h1 id="page-title">Home</h1>
             <p class="run-context" id="run-context"></p>
           </div>
+
           <div class="topbar-actions">
             <span class="status-badge neutral hidden" id="review-status"></span>
-            <button class="export-button hidden" id="export-menu" type="button" aria-haspopup="menu" aria-expanded="false">
-              Export review <span aria-hidden="true">⌄</span>
+            <button class="export-button hidden" id="export-menu" type="button" aria-haspopup="menu" aria-expanded="false">Export review <span aria-hidden="true">⌄</span></button>
+            <button class="ask-button" id="ask-csvqualreviewer" type="button"><span aria-hidden="true">✣</span>Ask CSVQualReviewer</button>
+            <button class="topbar-icon notification-button" type="button" aria-label="Notifications">♧<span>8</span></button>
+            <button class="topbar-icon" type="button" aria-label="Help">?</button>
+            <button class="profile-button" type="button" aria-label="Open profile menu">
+              <span class="avatar">AN</span>
+              <span><strong>Arvind Narayanamurthy</strong><small>Review Administrator</small></span>
+              <span aria-hidden="true">⌄</span>
             </button>
           </div>
         </header>

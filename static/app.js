@@ -9,16 +9,18 @@ const {
   filterFindings,
   sortFindings,
   acceptedChangeForFinding,
-} = window.AssureCSVUtils;
+} = window.CSVQualReviewerUtils;
 
 const state = {
   files: [],
   packageName: "",
+  documentType: "",
   report: null,
-  view: "overview",
+  view: "home",
+  dashboardTab: "assigned",
   selectedFindingId: "",
   selectedRedline: 0,
-  redlineMode: sessionStorage.getItem("assurecsv-redline-mode") || "split",
+  redlineMode: sessionStorage.getItem("csvqualreviewer-redline-mode") || "split",
   filters: { query: "", severity: "All", category: "All", document: "All", status: "All", confidence: "All" },
   sort: "risk",
   page: 1,
@@ -57,13 +59,18 @@ function showToast(message, type = "success") {
 }
 
 function routeFor(view = state.view, findingId = state.selectedFindingId) {
-  if (!state.report) return "#/new";
+  if (view === "home") return "#/home";
+  if (view === "upload" || !state.report) return "#/upload";
   const detail = findingId ? `/${encodeURIComponent(findingId)}` : "";
   return `#/review/${encodeURIComponent(state.report.review_id)}/${view}${detail}`;
 }
 
 function parseRoute() {
   const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
+  if (parts[0] === "home") return { reviewId: "", view: "home", findingId: "" };
+  if (["upload", "chat", "history", "feedback", "references", "templates", "sops", "golden", "guidance", "org-admin", "platform-admin"].includes(parts[0])) {
+    return { reviewId: "", view: parts[0], findingId: "" };
+  }
   if (parts[0] === "review" && parts[2]) {
     return { reviewId: parts[1], view: parts[2], findingId: parts[3] || "" };
   }
@@ -97,6 +104,11 @@ async function confirmUnsaved() {
 
 async function navigate(view, findingId = "") {
   if (!await confirmUnsaved()) return;
+  if (view === "upload") return beginNewReview();
+  const reportViews = ["overview", "findings", "documents", "traceability", "redlines", "decisions"];
+  if (reportViews.includes(view) && !state.report) {
+    return openLatestReview(view, findingId);
+  }
   state.view = view;
   state.selectedFindingId = findingId;
   state.page = 1;
@@ -104,17 +116,58 @@ async function navigate(view, findingId = "") {
   renderReport();
 }
 
+async function openLatestReview(view = "overview", findingId = "") {
+  try {
+    const response = await fetch("/api/reviews/latest");
+    const report = response.ok ? (await response.json()).review : null;
+    if (!report) return beginNewReview();
+    state.report = report;
+    state.packageName = report.package_name;
+    state.view = view;
+    state.selectedFindingId = findingId;
+    setRoute();
+    renderReport();
+  } catch (error) {
+    showToast("The saved review could not be opened. Upload a document to start a new review.", "error");
+  }
+}
+
 function updateHeader() {
   const title = document.querySelector("#page-title");
   const breadcrumb = document.querySelector("#breadcrumb");
   const context = document.querySelector("#run-context");
   const status = document.querySelector("#review-status");
-  if (!state.report) {
-    title.textContent = "New validation package";
-    breadcrumb.textContent = "VALIDATION REVIEW WORKSPACE";
+  document.body.dataset.view = state.view;
+  if (state.view === "home") {
+    title.textContent = "Home";
+    breadcrumb.textContent = "CSVQUALREVIEWER WORKSPACE";
     context.textContent = "";
     status.className = "status-badge neutral hidden";
     exportButton.classList.add("hidden");
+    document.title = "CSVQualReviewer — AI Document Review";
+    return;
+  }
+  const utilityTitles = {
+    chat: "Chat with CSVQualReviewer", history: "Run History", feedback: "Feedback & Analytics",
+    references: "Reference Library", templates: "Templates", sops: "SOPs", golden: "Golden Reports",
+    guidance: "Guidance Documents", "org-admin": "Review Administration", "platform-admin": "Platform Administration",
+  };
+  if (utilityTitles[state.view]) {
+    title.textContent = utilityTitles[state.view];
+    breadcrumb.textContent = "CSVQUALREVIEWER WORKSPACE";
+    context.textContent = state.report?.package_name || "";
+    status.className = "status-badge neutral hidden";
+    exportButton.classList.add("hidden");
+    document.title = `${utilityTitles[state.view]} — CSVQualReviewer`;
+    return;
+  }
+  if (!state.report) {
+    title.textContent = "Upload document";
+    breadcrumb.textContent = "REVIEW WORKSPACE";
+    context.textContent = "";
+    status.className = "status-badge neutral hidden";
+    exportButton.classList.add("hidden");
+    document.title = "Upload Document — CSVQualReviewer";
     return;
   }
   title.textContent = "Independent Validation Assessment";
@@ -123,7 +176,8 @@ function updateHeader() {
   const workflowStatus = state.report.review_workflow?.status || "Not Started";
   status.textContent = workflowStatus;
   status.className = `status-badge ${slug(workflowStatus)}`;
-  exportButton.classList.remove("hidden");
+  exportButton.classList.toggle("hidden", !["overview", "findings", "documents", "traceability", "redlines", "decisions"].includes(state.view));
+  document.title = `${title.textContent} — CSVQualReviewer`;
 }
 
 function updateNavigation() {
@@ -131,9 +185,11 @@ function updateNavigation() {
   const metrics = report ? calculateMetrics(report.findings || []) : null;
   document.querySelector("#findings-count").textContent = metrics?.findings ?? "—";
   document.querySelector("#documents-count").textContent = report?.metrics?.documents ?? (state.files.length || "—");
-  document.querySelector("#redlines-count").textContent = report?.redlined_documents?.length ?? "—";
-  document.querySelector("#decisions-count").textContent = metrics ? metrics.findings - metrics.status_counts.Open : "—";
-  document.querySelectorAll(".nav-item").forEach((item) => item.classList.toggle("active", item.dataset.view === state.view));
+  const reviewDetailViews = new Set(["overview", "traceability", "redlines", "decisions"]);
+  document.querySelectorAll(".nav-item").forEach((item) => {
+    const isReviewHome = item.dataset.view === "overview" && reviewDetailViews.has(state.view);
+    item.classList.toggle("active", item.dataset.view === state.view || isReviewHome);
+  });
 }
 
 function renderInitialLoading() {
@@ -143,51 +199,61 @@ function renderInitialLoading() {
 
 function renderEmpty() {
   state.report = null;
-  state.view = "overview";
+  state.view = "upload";
   state.selectedFindingId = "";
   closeDrawerImmediately();
   updateHeader();
   updateNavigation();
   workspace.innerHTML = `
-    <div class="empty-layout">
-      <section class="intro-card">
-        <p class="intro-kicker">AI-assisted independent quality review</p>
-        <h2>Turn a validation package into a defensible decision record.</h2>
-        <p class="intro-copy">AssureCSV connects findings to evidence, requirements, risk, proposed wording, and explicit human disposition. Uploaded source documents remain immutable.</p>
-
-        <label class="package-name-field" for="package-name">
-          <span>Package name</span>
-          <input id="package-name" value="${e(state.packageName)}" placeholder="e.g., MARS 6.2 validation package">
-        </label>
-
-        <div class="drop-zone" id="drop-zone">
-          <div>
-            <span class="drop-icon" aria-hidden="true">⇧</span>
-            <strong>Drop the complete validation package here</strong>
-            <p>PDF, DOCX, XLSX, CSV, JSON, Markdown, or text · up to 75 files</p>
-            <button class="secondary-button" id="browse-files" type="button">Choose documents</button>
+    <div class="upload-page">
+      <div class="upload-heading">
+        <button class="back-link" type="button" data-view-home>← Back to Home</button>
+        <p class="intro-kicker">New review</p>
+        <h2>Upload a document for review</h2>
+        <p>Start with one primary document. Add supporting evidence to give CSVQualReviewer the context it needs.</p>
+      </div>
+      <div class="empty-layout">
+        <section class="intro-card">
+          <div class="intake-fields">
+            <label class="package-name-field" for="package-name">
+              <span>Review name</span>
+              <input id="package-name" value="${e(state.packageName)}" placeholder="e.g., DV Protocol — Temperature Monitoring System">
+            </label>
+            <label class="package-name-field" for="document-type">
+              <span>Document type</span>
+              <select id="document-type">
+                ${optionList(["Select document type", "DV Report", "DV Protocol", "DV Plan", "TMV Report", "TMVA", "IQ Protocol / Report", "Engineering Study"], state.documentType || "Select document type")}
+              </select>
+            </label>
           </div>
-        </div>
+          <div class="drop-zone" id="drop-zone">
+            <div>
+              <span class="drop-icon" aria-hidden="true">⇧</span>
+              <strong>Drag &amp; drop your primary document here</strong>
+              <p>DOCX, XLSX, or PDF · maximum 50 MB</p>
+              <button class="secondary-button" id="browse-files" type="button">Browse files</button>
+            </div>
+          </div>
+          ${renderSelectedFiles()}
+          <div class="review-actions">
+            <button class="primary-button" id="start-review" type="button" ${state.files.length ? "" : "disabled"}>Start AI review <span aria-hidden="true">→</span></button>
+            <button class="text-button" id="sample-review" type="button">Use realistic sample package</button>
+            <span class="privacy-copy">Secure local processing • source files unchanged</span>
+          </div>
+        </section>
 
-        ${renderSelectedFiles()}
-        <div class="review-actions">
-          <button class="primary-button" id="start-review" type="button" ${state.files.length ? "" : "disabled"}>Start independent review</button>
-          <button class="text-button" id="sample-review" type="button">Use realistic sample package</button>
-          <span class="privacy-copy">Local processing • source files unchanged</span>
-        </div>
-      </section>
-
-      <aside class="protocol-card">
-        <p class="section-label">CONTROLLED REVIEW FLOW</p>
-        <h3>AI identifies. Human decides.</h3>
-        <ol class="workflow-steps">
-          <li><span>1</span><div><strong>Establish package risk</strong><p>Classify documents, intended use, regulated scope, and evidence gaps.</p></div></li>
-          <li><span>2</span><div><strong>Trace every finding</strong><p>Connect source evidence, review basis, risk, and recommended correction.</p></div></li>
-          <li><span>3</span><div><strong>Record human disposition</strong><p>Accept, modify, reject, defer, escalate, and resolve without overwriting AI output.</p></div></li>
-          <li><span>4</span><div><strong>Export controlled outputs</strong><p>Separate the review report, findings, redlines, traceability, and decision log.</p></div></li>
-        </ol>
-        <div class="principle-note"><strong>Product principle</strong><p>AI confidence is not reviewer approval. Every recommendation requires human evaluation.</p></div>
-      </aside>
+        <aside class="protocol-card">
+          <p class="section-label">AUTOMATED REVIEW FLOW</p>
+          <h3>From upload to a traceable decision record.</h3>
+          <ol class="workflow-steps">
+            <li><span>1</span><div><strong>Validate intake</strong><p>Confirm format, structure, type, and reference completeness.</p></div></li>
+            <li><span>2</span><div><strong>Analyze &amp; reconcile</strong><p>Review requirements, risk, evidence, consistency, and traceability.</p></div></li>
+            <li><span>3</span><div><strong>Inspect findings</strong><p>See severity, evidence, review basis, confidence, and proposed wording.</p></div></li>
+            <li><span>4</span><div><strong>Record your decision</strong><p>Accept, modify, reject, defer, or request SME review.</p></div></li>
+          </ol>
+          <div class="principle-note"><strong>Advisory only</strong><p>CSVQualReviewer never approves or releases documents. A qualified reviewer remains responsible for every decision.</p></div>
+        </aside>
+      </div>
     </div>`;
   bindEmptyActions();
   setRoute(true);
@@ -208,6 +274,8 @@ function bindEmptyActions() {
   document.querySelector("#start-review").addEventListener("click", startReview);
   document.querySelector("#sample-review").addEventListener("click", loadSample);
   document.querySelector("#package-name").addEventListener("input", (event) => { state.packageName = event.target.value; });
+  document.querySelector("#document-type").addEventListener("change", (event) => { state.documentType = event.target.value; });
+  document.querySelector("[data-view-home]").addEventListener("click", () => navigate("home"));
   document.querySelectorAll("[data-remove-file]").forEach((button) => button.addEventListener("click", () => {
     state.files.splice(Number(button.dataset.removeFile), 1);
     renderEmpty();
@@ -225,17 +293,24 @@ function bindEmptyActions() {
 
 function addFiles(files) {
   const allowed = new Set(["pdf", "docx", "xlsx", "xlsm", "csv", "tsv", "txt", "md", "json", "xml", "html", "htm", "yaml", "yml"]);
-  const valid = files.filter((file) => allowed.has((file.name.split(".").pop() || "").toLowerCase()));
+  const maximumFileBytes = 50 * 1024 * 1024;
+  const maximumTotalBytes = 200 * 1024 * 1024;
+  const valid = files.filter((file) => allowed.has((file.name.split(".").pop() || "").toLowerCase()) && (file.size == null || file.size <= maximumFileBytes));
   const rejected = files.length - valid.length;
   const existing = new Set(state.files.map((file) => `${file.name}:${file.size ?? file.content?.length}`));
+  let totalBytes = state.files.reduce((total, file) => total + (file.size || 0), 0);
   valid.forEach((file) => {
     const key = `${file.name}:${file.size ?? file.content?.length}`;
-    if (!existing.has(key) && state.files.length < 75) {
+    const nextBytes = totalBytes + (file.size || 0);
+    if (!existing.has(key) && state.files.length < 21 && nextBytes <= maximumTotalBytes) {
       state.files.push(file);
       existing.add(key);
+      totalBytes = nextBytes;
     }
   });
-  if (rejected) showToast(`${plural(rejected, "unsupported file")} skipped.`, "error");
+  if (rejected) showToast(`${plural(rejected, "unsupported or oversized file")} skipped.`, "error");
+  else if (state.files.length >= 21 || totalBytes >= maximumTotalBytes) showToast("The intake limit is one primary document plus 20 attachments, up to 200 MB total.", "error");
+  state.view = "upload";
   renderEmpty();
 }
 
@@ -308,8 +383,161 @@ function confidenceMarkup(finding) {
   return `<span class="confidence-pill ${slug(band)}" title="AI confidence reflects the model's assessment and does not represent reviewer approval.">AI Confidence: ${e(value)}% <small>${e(band)}</small></span>${band === "Low" ? `<span class="verification-flag">Human Verification Recommended</span>` : ""}`;
 }
 
+function sparkline(color, points) {
+  const path = points.map((point, index) => `${index ? "L" : "M"}${index * (200 / (points.length - 1))},${42 - point}`).join(" ");
+  const area = `${path} L200,42 L0,42 Z`;
+  return `<svg class="metric-sparkline" viewBox="0 0 200 42" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="spark-${color.slice(1)}" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="${color}" stop-opacity=".24"/><stop offset="1" stop-color="${color}" stop-opacity="0"/></linearGradient></defs><path class="spark-area" d="${area}" fill="url(#spark-${color.slice(1)})"/><path d="${path}" fill="none" stroke="${color}" stroke-width="1.6" vector-effect="non-scaling-stroke"/></svg>`;
+}
+
+function renderDashboard() {
+  const metrics = state.report ? calculateMetrics((state.report.findings || []).map(normalizeFinding)) : null;
+  const reviews = [
+    { type: "W", tone: "word", title: "DV Protocol - Temp Monitoring System", subtitle: "DV Protocol", owner: "Jane Cooper", initials: "JC", status: "In Review", time: "2h ago", tab: "assigned" },
+    { type: "PDF", tone: "pdf", title: "TMV Report - Patient Arm Module", subtitle: "TMV Report", owner: "Robert Fox", initials: "RF", status: "AI Processing", time: "4h ago", tab: "progress" },
+    { type: "XLSX", tone: "xlsx", title: "F-03 Calibration Summary", subtitle: "Report", owner: "Wade Warren", initials: "WW", status: "Completed", time: "6h ago", tab: "completed" },
+    { type: "W", tone: "word", title: "DV Plan - Power Management", subtitle: "DV Plan", owner: "Esther Howard", initials: "EH", status: "Pending Uploads", time: "1d ago", tab: "assigned" },
+    { type: "PDF", tone: "pdf", title: "IQ Report - End of Line Test Station", subtitle: "IQ Report", owner: "Brooklyn Simmons", initials: "BS", status: "Not Started", time: "1d ago", tab: "assigned" },
+  ];
+  const visibleReviews = state.dashboardTab === "assigned" ? reviews : reviews.filter((review) => review.tab === state.dashboardTab);
+  const critical = Math.max(23, metrics?.severity_counts?.Critical || 0);
+
+  updateHeader();
+  updateNavigation();
+  workspace.innerHTML = `
+    <div class="dashboard-page">
+      <section class="dashboard-welcome">
+        <div><h2>Welcome back, Arvind <span aria-hidden="true">👋</span></h2><p>Here’s what’s happening with your reviews today.</p></div>
+        <div class="dashboard-actions">
+          <button class="primary-button upload-action" data-start-review type="button"><span aria-hidden="true">＋</span>Upload Document <small>⌄</small></button>
+          <button class="secondary-button new-review-action" data-start-review type="button"><span aria-hidden="true">▷</span>New Review</button>
+        </div>
+      </section>
+
+      <section class="dashboard-metrics" aria-label="Review metrics">
+        <article class="dashboard-metric blue"><div class="metric-top"><span class="metric-icon">▤</span><span>Documents Reviewed</span><button type="button" aria-label="Documents metric menu">⋮</button></div><strong>128</strong><small><b>＋18</b> this week</small>${sparkline("#7c4dff", [10,14,14,17,18,14,12,17,19,22,18,17,20,18,23,22,28,34,33,27,31,38])}</article>
+        <article class="dashboard-metric red"><div class="metric-top"><span class="metric-icon">!</span><span>Critical Findings</span><button type="button" aria-label="Critical findings metric menu">⋮</button></div><strong>${critical}</strong><small class="down">↓ 12% <span>vs last week</span></small>${sparkline("#ff4438", [12,18,21,17,11,10,14,18,15,9,8,10,12,13,15,14,11,12,17,15,16,27])}</article>
+        <article class="dashboard-metric green"><div class="metric-top"><span class="metric-icon">◷</span><span>Avg. Review Time</span><button type="button" aria-label="Review time metric menu">⋮</button></div><strong>36<em> min</em></strong><small class="up">↓ 45% <span>vs baseline</span></small>${sparkline("#41c86a", [13,17,20,20,23,22,18,12,9,11,14,16,18,19,20,19,18,23,20,26,27,31])}</article>
+        <article class="dashboard-metric cyan"><div class="metric-top"><span class="metric-icon">✓</span><span>Compliance Coverage</span><button type="button" aria-label="Coverage metric menu">⋮</button></div><strong>98%</strong><small class="up">↑ 8% <span>vs baseline</span></small>${sparkline("#328cf7", [8,11,12,13,13,14,15,13,17,18,15,13,17,16,14,20,22,19,21,23,27,31])}</article>
+        <article class="dashboard-metric amber"><div class="metric-top"><span class="metric-icon">$</span><span>Cost Savings (YTD)</span><button type="button" aria-label="Savings metric menu">⋮</button></div><strong>$142K</strong><small class="up">↑ 28% <span>vs last quarter</span></small>${sparkline("#f0a500", [9,13,13,13,11,14,16,20,17,14,14,17,14,19,18,24,21,20,23,23,29,31])}</article>
+      </section>
+
+      <section class="dashboard-main-grid">
+        <article class="dash-panel reviews-panel">
+          <div class="dash-panel-title"><h3>My Reviews</h3><button class="text-button" data-open-active type="button">View all</button></div>
+          <div class="review-tabs" role="tablist" aria-label="Review status">
+            <button class="${state.dashboardTab === "assigned" ? "active" : ""}" data-dashboard-tab="assigned" type="button" role="tab">Assigned to me (5)</button>
+            <button class="${state.dashboardTab === "progress" ? "active" : ""}" data-dashboard-tab="progress" type="button" role="tab">In Progress (4)</button>
+            <button class="${state.dashboardTab === "completed" ? "active" : ""}" data-dashboard-tab="completed" type="button" role="tab">Completed</button>
+          </div>
+          <div class="review-list">
+            ${visibleReviews.map((review, index) => `<button class="review-row" type="button" ${index === 0 ? "data-open-active" : "data-review-demo"}>
+              <span class="file-type ${review.tone}">${e(review.type)}</span>
+              <span class="review-name"><strong>${e(review.title)}</strong><small>${e(review.subtitle)}</small></span>
+              <span class="review-owner"><small>Uploaded by</small><span><i>${e(review.initials)}</i>${e(review.owner)}</span></span>
+              <span class="review-status ${slug(review.status)}">${review.status === "Completed" ? "✓ " : ""}${e(review.status)}</span>
+              <time>${e(review.time)}</time><span class="row-menu" aria-hidden="true">⋮</span>
+            </button>`).join("")}
+          </div>
+          <button class="dashboard-dropzone" data-start-review type="button"><span aria-hidden="true">⇧</span><strong>Drag &amp; drop files here or click to browse</strong><small>DOCX, XLSX, PDF (Max 50MB per file)</small></button>
+        </article>
+
+        <div class="dashboard-center-stack">
+          <article class="dash-panel progress-panel">
+            <div class="dash-panel-title"><h3>Review Progress</h3><select aria-label="Review progress time range"><option>This Week</option><option>This Month</option></select></div>
+            <div class="progress-body">
+              <div class="progress-donut" aria-label="128 total reviews"><span><strong>128</strong><small>Total</small></span></div>
+              <dl class="progress-legend">
+                <div><dt><i class="green-dot"></i>Completed</dt><dd>58 (45%)</dd></div>
+                <div><dt><i class="violet-dot"></i>In Review</dt><dd>32 (25%)</dd></div>
+                <div><dt><i class="blue-dot"></i>AI Processing</dt><dd>18 (14%)</dd></div>
+                <div><dt><i class="amber-dot"></i>Pending Upload</dt><dd>12 (9%)</dd></div>
+                <div><dt><i class="gray-dot"></i>Not Started</dt><dd>8 (6%)</dd></div>
+              </dl>
+            </div>
+            <button class="text-button progress-link" data-open-active type="button">View all reviews →</button>
+          </article>
+          <article class="dash-panel categories-panel">
+            <div class="dash-panel-title"><h3>Top Finding Categories</h3><select aria-label="Finding category time range"><option>This Week</option><option>This Month</option></select></div>
+            <div class="category-bars">
+              ${[["Critical",23,"critical"],["Major",41,"major"],["Minor",67,"minor"],["Suggestions",35,"suggestions"],["Informational",18,"informational"]].map(([label,value,tone]) => `<div><span>${label}</span><i><b class="${tone}" style="width:${Math.max(28, value)}%"></b></i><strong>${value}</strong></div>`).join("")}
+            </div>
+            <button class="text-button" data-view-findings type="button">View findings →</button>
+          </article>
+        </div>
+
+        <article class="dash-panel activity-panel">
+          <div class="dash-panel-title"><h3>Recent Activity</h3><button class="text-button" type="button" data-demo-action>View all</button></div>
+          <div class="activity-list">
+            ${[
+              ["✣","purple","AI review completed","DV Protocol - Temp Monitoring System","2m ago"],
+              ["!","red","New critical finding detected","TMV Report - Patient Arm Module","15m ago"],
+              ["✓","green","Review completed","F-03 Calibration Summary","1h ago"],
+              ["⇧","blue","Document uploaded","DV Plan - Power Management","2h ago"],
+              ["▣","violet","New chat started","IQ Report - End of Line Test Station","3h ago"],
+              ["♙","amber","User added","Esther Howard added to organization","4h ago"],
+              ["♢","green","Reference library updated","TMV SOP v2.4 uploaded","5h ago"],
+              ["⌁","purple","Weekly analytics report generated","","6h ago"],
+            ].map(([icon,tone,title,copy,time]) => `<div class="activity-row"><span class="activity-icon ${tone}">${icon}</span><span><strong>${title}</strong>${copy ? `<small>${copy}</small>` : ""}</span><time>${time}</time></div>`).join("")}
+          </div>
+        </article>
+      </section>
+
+      <section class="quick-access">
+        <h3>Quick Access</h3>
+        <div>
+          <button data-quick="chat" type="button"><span class="blue">▣</span><span><strong>Chat with CSVQualReviewer</strong><small>Ask questions about your documents</small></span></button>
+          <button data-quick="references" type="button"><span class="green">▰</span><span><strong>Reference Library</strong><small>Access SOPs, templates &amp; reports</small></span></button>
+          <button data-quick="findings" type="button"><span class="red">!</span><span><strong>Findings Dashboard</strong><small>View all findings &amp; metrics</small></span></button>
+          <button data-quick="org-admin" type="button"><span class="violet">⚙</span><span><strong>Review Administration</strong><small>Manage users &amp; review configurations</small></span></button>
+        </div>
+      </section>
+    </div>`;
+
+  document.querySelectorAll("[data-start-review]").forEach((button) => button.addEventListener("click", beginNewReview));
+  document.querySelectorAll("[data-open-active]").forEach((button) => button.addEventListener("click", () => navigate("overview")));
+  document.querySelectorAll("[data-dashboard-tab]").forEach((button) => button.addEventListener("click", () => { state.dashboardTab = button.dataset.dashboardTab; renderDashboard(); }));
+  document.querySelectorAll("[data-review-demo], [data-demo-action]").forEach((button) => button.addEventListener("click", () => showToast("Demo activity opened. Connect your organization data to view the full record.")));
+  document.querySelector("[data-view-findings]").addEventListener("click", () => navigate("findings"));
+  document.querySelectorAll("[data-quick]").forEach((button) => button.addEventListener("click", () => navigate(button.dataset.quick)));
+}
+
+function renderUtilityView(view) {
+  const content = {
+    chat: ["Chat with CSVQualReviewer", "Ask grounded questions about the current run. Responses stay scoped to its documents, references, findings, citations, and traceability.", "chat"],
+    history: ["Run History", "Search and reopen prior review runs with their original configuration, references, findings, and decision record.", "history"],
+    feedback: ["Feedback & Analytics", "Monitor review usefulness, false-positive patterns, citation quality, document-type trends, and cost.", "analytics"],
+    references: ["Reference Library", "Manage the active SOPs, templates, guidance, golden reports, and historical versions used for new reviews.", "library"],
+    templates: ["Templates", "Controlled document templates available to new review runs.", "library"],
+    sops: ["Standard Operating Procedures", "Active and archived procedures with revision-level traceability.", "library"],
+    golden: ["Golden Reports", "Approved exemplars used as controlled organizational review context.", "library"],
+    guidance: ["Guidance Documents", "Internal standards and approved guidance available to the review engine.", "library"],
+    "org-admin": ["Review Administration", "Manage users, document-type review configuration, activation controls, analytics, and audit records.", "admin"],
+    "platform-admin": ["Platform Administration", "Manage organizations, approved models, tenant isolation, platform health, and cross-organization audit.", "admin"],
+  }[view] || ["CSVQualReviewer", "This workspace is ready for your organization’s configured data.", "library"];
+  updateHeader();
+  updateNavigation();
+  const reportName = state.report?.package_name || "No active review";
+  workspace.innerHTML = `<div class="utility-page"><div class="utility-heading"><p class="intro-kicker">CSVQUALREVIEWER WORKSPACE</p><h2>${e(content[0])}</h2><p>${e(content[1])}</p></div>${content[2] === "chat" ? `
+    <section class="chat-shell"><div class="chat-context"><span>Current run</span><strong>${e(reportName)}</strong><small>Document and review sources are cited separately. Chat cannot modify the controlled run.</small></div><div class="chat-messages" id="chat-messages"><article class="assistant-message"><span>✣</span><div><strong>CSVQualReviewer</strong><p>Ask about evidence, requirements, findings, traceability, or proposed wording in this run.</p><div><button type="button" data-chat-prompt="Summarize the highest-risk findings">Summarize highest-risk findings</button><button type="button" data-chat-prompt="Which requirements lack test coverage?">Find traceability gaps</button></div></div></article></div><form class="chat-composer" id="chat-form"><input id="chat-input" placeholder="Ask about this review…" aria-label="Chat message"><button type="submit" aria-label="Send message">↑</button></form></section>` : `
+    <section class="utility-grid"><article><span>01</span><h3>${content[2] === "history" ? "Controlled provenance" : content[2] === "analytics" ? "Evidence-led improvement" : content[2] === "admin" ? "Governed configuration" : "Version-controlled context"}</h3><p>${content[2] === "history" ? "Every run remains linked to its inputs, outputs, configuration version, references, and model traceability." : content[2] === "analytics" ? "Feedback informs analytics without silently rewriting completed findings or production behavior." : content[2] === "admin" ? "Review-logic changes are versioned and high-impact activation can require four-eyes confirmation." : "Only active approved references are used for new runs; archived versions remain available for reconstruction."}</p></article><article><span>02</span><h3>${state.report ? "Active review available" : "Ready for organization data"}</h3><p>${state.report ? `Open ${e(state.report.package_name)} to inspect its controlled record.` : "Upload a primary document or connect your organization sources to populate this workspace."}</p><button class="primary-button" type="button" data-utility-action>${state.report ? "Open active review" : "Upload document"}</button></article></section>`}</div>`;
+  document.querySelector("[data-utility-action]")?.addEventListener("click", () => state.report ? navigate("overview") : beginNewReview());
+  if (content[2] === "chat") {
+    const input = document.querySelector("#chat-input");
+    document.querySelectorAll("[data-chat-prompt]").forEach((button) => button.addEventListener("click", () => { input.value = button.dataset.chatPrompt; input.focus(); }));
+    document.querySelector("#chat-form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const question = input.value.trim();
+      if (!question) return;
+      document.querySelector("#chat-messages").insertAdjacentHTML("beforeend", `<article class="user-message"><p>${e(question)}</p></article><article class="assistant-message"><span>✣</span><div><strong>CSVQualReviewer</strong><p>${state.report ? `This local prototype keeps chat grounded to ${e(state.report.package_name)}. Open Findings or Traceability to inspect the supporting controlled record.` : "Upload a document first so the answer can be grounded in a specific run."}</p></div></article>`);
+      input.value = "";
+    });
+  }
+}
+
 function renderReport() {
-  if (!state.report) return renderEmpty();
+  if (state.view === "home") return renderDashboard();
+  if (["chat", "history", "feedback", "references", "templates", "sops", "golden", "guidance", "org-admin", "platform-admin"].includes(state.view)) return renderUtilityView(state.view);
+  if (state.view === "upload" || !state.report) return renderEmpty();
   state.report.findings = (state.report.findings || []).map(normalizeFinding);
   updateHeader();
   updateNavigation();
@@ -327,7 +555,8 @@ function renderReport() {
 }
 
 function pageHeading(title, copy, action = "") {
-  return `<div class="view-title"><div><p class="section-label">${e(state.report.package_name)}</p><h2>${e(title)}</h2><p>${e(copy)}</p></div>${action}</div>`;
+  const tabs = [["overview", "Summary"], ["findings", "Findings"], ["documents", "Documents"], ["traceability", "Traceability"], ["redlines", "Redlines"], ["decisions", "Decisions"]];
+  return `<nav class="review-subnav" aria-label="Active review sections">${tabs.map(([view, label]) => `<button class="${state.view === view ? "active" : ""}" type="button" data-review-nav="${view}">${label}</button>`).join("")}</nav><div class="view-title"><div><p class="section-label">${e(state.report.package_name)}</p><h2>${e(title)}</h2><p>${e(copy)}</p></div>${action}</div>`;
 }
 
 function metricCard(label, value, note, tone = "") {
@@ -520,7 +749,7 @@ async function bulkAction(action) {
       const response = await fetch(`/api/reviews/${encodeURIComponent(state.report.review_id)}/findings/${encodeURIComponent(finding.finding_id)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ disposition: action, reviewer_comment: comment, reviewer: localStorage.getItem("assurecsv-reviewer") || "", expected_updated_at: finding.updated_at }),
+        body: JSON.stringify({ disposition: action, reviewer_comment: comment, reviewer: localStorage.getItem("csvqualreviewer-reviewer") || "", expected_updated_at: finding.updated_at }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(`${finding.finding_id}: ${payload.error}`);
@@ -621,7 +850,7 @@ function renderRedlines() {
         <details class="source-document"><summary>View immutable extracted source document</summary><pre>${e(selected.source_text || "Source text is not available in this historical review.")}</pre></details>` : `<div class="empty-state"><strong>No redline documents available</strong><p>This review does not contain document-level redline data.</p></div>`}</section>
     </div>`;
   document.querySelectorAll("[data-redline-document]").forEach((button) => button.addEventListener("click", () => { state.selectedRedline = Number(button.dataset.redlineDocument); renderRedlines(); }));
-  document.querySelectorAll("[data-mode]").forEach((button) => button.addEventListener("click", () => { state.redlineMode = button.dataset.mode; sessionStorage.setItem("assurecsv-redline-mode", state.redlineMode); renderRedlines(); }));
+  document.querySelectorAll("[data-mode]").forEach((button) => button.addEventListener("click", () => { state.redlineMode = button.dataset.mode; sessionStorage.setItem("csvqualreviewer-redline-mode", state.redlineMode); renderRedlines(); }));
   document.querySelectorAll("[data-open-finding]").forEach((button) => button.addEventListener("click", () => navigate("redlines", button.dataset.openFinding)));
 }
 
@@ -650,7 +879,7 @@ function openFindingDrawer(findingId, updateRoute = true) {
     state.decisionDraft = {
       findingId: finding.finding_id,
       disposition: finding.status === "Open" ? "" : finding.status,
-      reviewer: finding.reviewer && finding.reviewer !== "Not Available" ? finding.reviewer : (localStorage.getItem("assurecsv-reviewer") || ""),
+      reviewer: finding.reviewer && finding.reviewer !== "Not Available" ? finding.reviewer : (localStorage.getItem("csvqualreviewer-reviewer") || ""),
       comment: finding.reviewer_comment || "",
       modified: finding.modified_recommendation || finding.proposed_text,
       rejectionReason: finding.rejection_reason || "",
@@ -755,7 +984,7 @@ async function saveDecision() {
     });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "The reviewer decision could not be saved.");
-    if (state.decisionDraft.reviewer) localStorage.setItem("assurecsv-reviewer", state.decisionDraft.reviewer);
+    if (state.decisionDraft.reviewer) localStorage.setItem("csvqualreviewer-reviewer", state.decisionDraft.reviewer);
     state.report = payload.report;
     state.unsaved = false;
     state.saving = false;
@@ -787,7 +1016,7 @@ function closeDrawerImmediately() {
 }
 
 async function completeReview() {
-  const reviewer = localStorage.getItem("assurecsv-reviewer") || "";
+  const reviewer = localStorage.getItem("csvqualreviewer-reviewer") || "";
   if (!window.confirm("Complete this human review record? This records completion but does not represent autonomous AI approval.")) return;
   const button = document.querySelector("#complete-review");
   button.disabled = true;
@@ -849,7 +1078,7 @@ function exportReviewReport() {
   const report = state.report;
   const metrics = calculateMetrics(report.findings);
   const provenance = report.review_provenance || {};
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${e(report.package_name)} Review Report</title><style>body{font:14px/1.55 Arial,sans-serif;color:#17231e;max-width:1050px;margin:40px auto;padding:0 24px}h1,h2,h3{font-family:Georgia,serif}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ccd5d0;padding:8px;text-align:left;vertical-align:top}.finding{border:1px solid #ccd5d0;padding:18px;margin:18px 0;break-inside:avoid}.label{font-size:11px;font-weight:bold;color:#52645b;letter-spacing:.08em}.ai{background:#f3f7f5;padding:12px}.human{background:#eef5ff;padding:12px}.badge{font-weight:bold}</style></head><body><p class="label">ASSURECSV CONTROLLED REVIEW REPORT</p><h1>${e(report.package_name)}</h1><p><strong>Review Run:</strong> ${e(report.review_id)}<br><strong>Status:</strong> ${e(report.review_workflow.status)}<br><strong>Package Readiness:</strong> ${e(report.review_workflow.package_readiness)}</p><h2>Review provenance</h2><table>${Object.entries(provenance).map(([key, value]) => `<tr><th>${e(key.replaceAll("_", " "))}</th><td>${e(value)}</td></tr>`).join("")}</table><h2>Documents reviewed</h2><ul>${(report.document_summaries || []).map((doc) => `<li>${e(doc.document_name)} — ${plural(doc.finding_count, "finding")}, highest unresolved: ${e(doc.highest_unresolved_severity)}</li>`).join("")}</ul><h2>Executive summary</h2><p>${e(report.executive_assessment?.basis || "Not Available")}</p><p>Critical: ${metrics.severity_counts.Critical} • Major: ${metrics.severity_counts.Major} • Minor: ${metrics.severity_counts.Minor} • Observation: ${metrics.severity_counts.Observation}</p><h2>Detailed findings and decisions</h2>${report.findings.map((finding) => `<article class="finding"><p class="label">${e(finding.finding_id)} • ${e(finding.severity)} • ${e(finding.category)}</p><h3>${e(finding.title)}</h3><p><strong>Document / Section:</strong> ${e(finding.document)} / ${e(finding.section)}</p><p><strong>Finding:</strong> ${e(finding.finding)}</p><p><strong>Evidence:</strong> ${e(finding.evidence)}</p><p><strong>Risk / Impact:</strong> ${e(finding.risk_impact)}</p><div class="ai"><span class="label">AI GENERATED CONTENT</span><p>${e(finding.proposed_text)}</p><p>AI Confidence: ${e(finding.confidence_score ?? "Not Available")}${finding.confidence_score != null ? "%" : ""}</p></div><div class="human"><span class="label">REVIEWER DECISION</span><p><strong>${e(finding.status)}</strong> by ${e(finding.reviewer || "Not Available")} on ${e(timestamp(finding.reviewed_at))}</p><p>${e(finding.reviewer_comment || "No reviewer comment recorded")}</p>${finding.modified_recommendation ? `<p><strong>Reviewer-modified recommendation:</strong> ${e(finding.modified_recommendation)}</p>` : ""}</div></article>`).join("")}<h2>Open actions and SME items</h2><ul>${report.findings.filter((finding) => !["Rejected", "Resolved"].includes(finding.status)).map((finding) => `<li>${e(finding.finding_id)} — ${e(finding.status)} — ${e(finding.title)}</li>`).join("") || "<li>None</li>"}</ul><p><strong>Review completion status:</strong> ${e(report.review_workflow.status)}</p></body></html>`;
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${e(report.package_name)} Review Report</title><style>body{font:14px/1.55 Arial,sans-serif;color:#17231e;max-width:1050px;margin:40px auto;padding:0 24px}h1,h2,h3{font-family:Georgia,serif}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ccd5d0;padding:8px;text-align:left;vertical-align:top}.finding{border:1px solid #ccd5d0;padding:18px;margin:18px 0;break-inside:avoid}.label{font-size:11px;font-weight:bold;color:#52645b;letter-spacing:.08em}.ai{background:#f3f7f5;padding:12px}.human{background:#eef5ff;padding:12px}.badge{font-weight:bold}</style></head><body><p class="label">CSVQUALREVIEWER CONTROLLED REVIEW REPORT</p><h1>${e(report.package_name)}</h1><p><strong>Review Run:</strong> ${e(report.review_id)}<br><strong>Status:</strong> ${e(report.review_workflow.status)}<br><strong>Package Readiness:</strong> ${e(report.review_workflow.package_readiness)}</p><h2>Review provenance</h2><table>${Object.entries(provenance).map(([key, value]) => `<tr><th>${e(key.replaceAll("_", " "))}</th><td>${e(value)}</td></tr>`).join("")}</table><h2>Documents reviewed</h2><ul>${(report.document_summaries || []).map((doc) => `<li>${e(doc.document_name)} — ${plural(doc.finding_count, "finding")}, highest unresolved: ${e(doc.highest_unresolved_severity)}</li>`).join("")}</ul><h2>Executive summary</h2><p>${e(report.executive_assessment?.basis || "Not Available")}</p><p>Critical: ${metrics.severity_counts.Critical} • Major: ${metrics.severity_counts.Major} • Minor: ${metrics.severity_counts.Minor} • Observation: ${metrics.severity_counts.Observation}</p><h2>Detailed findings and decisions</h2>${report.findings.map((finding) => `<article class="finding"><p class="label">${e(finding.finding_id)} • ${e(finding.severity)} • ${e(finding.category)}</p><h3>${e(finding.title)}</h3><p><strong>Document / Section:</strong> ${e(finding.document)} / ${e(finding.section)}</p><p><strong>Finding:</strong> ${e(finding.finding)}</p><p><strong>Evidence:</strong> ${e(finding.evidence)}</p><p><strong>Risk / Impact:</strong> ${e(finding.risk_impact)}</p><div class="ai"><span class="label">AI GENERATED CONTENT</span><p>${e(finding.proposed_text)}</p><p>AI Confidence: ${e(finding.confidence_score ?? "Not Available")}${finding.confidence_score != null ? "%" : ""}</p></div><div class="human"><span class="label">REVIEWER DECISION</span><p><strong>${e(finding.status)}</strong> by ${e(finding.reviewer || "Not Available")} on ${e(timestamp(finding.reviewed_at))}</p><p>${e(finding.reviewer_comment || "No reviewer comment recorded")}</p>${finding.modified_recommendation ? `<p><strong>Reviewer-modified recommendation:</strong> ${e(finding.modified_recommendation)}</p>` : ""}</div></article>`).join("")}<h2>Open actions and SME items</h2><ul>${report.findings.filter((finding) => !["Rejected", "Resolved"].includes(finding.status)).map((finding) => `<li>${e(finding.finding_id)} — ${e(finding.status)} — ${e(finding.title)}</li>`).join("") || "<li>None</li>"}</ul><p><strong>Review completion status:</strong> ${e(report.review_workflow.status)}</p></body></html>`;
   download(`${slug(report.package_name)}-review-report.html`, html, "text/html;charset=utf-8");
 }
 
@@ -858,7 +1087,7 @@ function exportRedlinedDocument() {
   if (!document) return showToast("No redlined document is available to export.", "error");
   const related = state.report.findings.filter((finding) => document.finding_ids?.includes(finding.finding_id) || finding.affected_documents.some((item) => item.document_name === document.document_name));
   const accepted = related.filter((finding) => acceptedChangeForFinding(finding));
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${e(document.document_name)} Reviewed Redline</title><style>body{font:14px/1.6 Arial,sans-serif;max-width:1000px;margin:40px auto;padding:0 24px;color:#17231e}pre{white-space:pre-wrap;border:1px solid #d2dbd6;background:#f8faf9;padding:16px}article{border-top:1px solid #ccd5d0;padding:16px 0}del{background:#ffe9e9;color:#8a2222}ins{background:#e4f6ea;color:#145f35;text-decoration:none}.label{font-size:11px;font-weight:bold;letter-spacing:.08em;color:#56665e}</style></head><body><p class="label">ASSURECSV REVIEWED DOCUMENT REDLINE</p><h1>${e(document.document_name)}</h1><p>Review Run: ${e(state.report.review_id)} • Source document preserved • Rejected recommendations excluded</p><h2>Immutable extracted source</h2><pre>${e(document.source_text || "Not Available")}</pre><h2>Reviewer-accepted change set</h2>${accepted.map((finding) => `<article><p class="label">${e(finding.finding_id)} • ${e(finding.status)}</p><h3>${e(finding.title)}</h3><p><strong>Original:</strong> ${e(finding.original_text)}</p><p><strong>Final accepted wording:</strong> ${e(acceptedChangeForFinding(finding))}</p><p><strong>Reviewer:</strong> ${e(finding.reviewer || "Not Available")} • ${e(timestamp(finding.reviewed_at))}</p></article>`).join("") || "<p>No accepted or modified recommendations are available for incorporation. The source remains unchanged.</p>"}<h2>Disposition note</h2><p>${related.filter((finding) => finding.status === "Rejected").length} rejected recommendation(s) were deliberately excluded. Modified findings use reviewer-modified wording.</p></body></html>`;
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${e(document.document_name)} Reviewed Redline</title><style>body{font:14px/1.6 Arial,sans-serif;max-width:1000px;margin:40px auto;padding:0 24px;color:#17231e}pre{white-space:pre-wrap;border:1px solid #d2dbd6;background:#f8faf9;padding:16px}article{border-top:1px solid #ccd5d0;padding:16px 0}del{background:#ffe9e9;color:#8a2222}ins{background:#e4f6ea;color:#145f35;text-decoration:none}.label{font-size:11px;font-weight:bold;letter-spacing:.08em;color:#56665e}</style></head><body><p class="label">CSVQUALREVIEWER REVIEWED DOCUMENT REDLINE</p><h1>${e(document.document_name)}</h1><p>Review Run: ${e(state.report.review_id)} • Source document preserved • Rejected recommendations excluded</p><h2>Immutable extracted source</h2><pre>${e(document.source_text || "Not Available")}</pre><h2>Reviewer-accepted change set</h2>${accepted.map((finding) => `<article><p class="label">${e(finding.finding_id)} • ${e(finding.status)}</p><h3>${e(finding.title)}</h3><p><strong>Original:</strong> ${e(finding.original_text)}</p><p><strong>Final accepted wording:</strong> ${e(acceptedChangeForFinding(finding))}</p><p><strong>Reviewer:</strong> ${e(finding.reviewer || "Not Available")} • ${e(timestamp(finding.reviewed_at))}</p></article>`).join("") || "<p>No accepted or modified recommendations are available for incorporation. The source remains unchanged.</p>"}<h2>Disposition note</h2><p>${related.filter((finding) => finding.status === "Rejected").length} rejected recommendation(s) were deliberately excluded. Modified findings use reviewer-modified wording.</p></body></html>`;
   download(`${slug(document.document_name)}-reviewed-redline.html`, html, "text/html;charset=utf-8");
 }
 
@@ -871,7 +1100,7 @@ async function handleExport(type) {
   else if (type === "decisions") exportDecisionLog();
   else if (type === "traceability") exportTraceability();
   else if (type === "json") download(`${slug(state.report.package_name)}-${state.report.review_id}.json`, JSON.stringify(state.report, null, 2), "application/json;charset=utf-8");
-  fetch(`/api/reviews/${encodeURIComponent(state.report.review_id)}/exports`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ export_type: type, reviewer: localStorage.getItem("assurecsv-reviewer") || "" }) }).catch(() => {});
+  fetch(`/api/reviews/${encodeURIComponent(state.report.review_id)}/exports`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ export_type: type, reviewer: localStorage.getItem("csvqualreviewer-reviewer") || "" }) }).catch(() => {});
   showToast("Export generated from the current controlled review record.");
 }
 
@@ -889,32 +1118,45 @@ async function restoreLatestReview() {
       if (response.ok) report = (await response.json()).review;
     }
     if (report) {
+      if (route.view === "upload") {
+        state.report = null;
+        state.view = "upload";
+        return renderEmpty();
+      }
       state.report = report;
       state.packageName = report.package_name;
-      state.view = route.view && ["overview", "findings", "documents", "traceability", "redlines", "decisions"].includes(route.view) ? route.view : "overview";
+      const supportedViews = ["home", "overview", "findings", "documents", "traceability", "redlines", "decisions", "chat", "history", "feedback", "references", "templates", "sops", "golden", "guidance", "org-admin", "platform-admin"];
+      state.view = route.view && supportedViews.includes(route.view) ? route.view : "home";
       state.selectedFindingId = route.findingId || "";
       setRoute(true);
       renderReport();
-    } else renderEmpty();
+    } else {
+      state.view = route.view === "upload" ? "upload" : "home";
+      renderReport();
+    }
   } catch (error) {
-    renderEmpty();
+    state.view = "home";
+    renderReport();
     showToast("The latest review could not be restored. Start a new review or try again.", "error");
   }
 }
 
 document.querySelectorAll(".nav-item").forEach((button) => button.addEventListener("click", () => {
-  if (!state.report) return showToast("Start or restore a package review first.", "error");
+  if (button.id === "new-review") return;
   navigate(button.dataset.view);
 }));
-document.querySelector("#new-review").addEventListener("click", async () => {
+async function beginNewReview() {
   if (!await confirmUnsaved()) return;
-  if (state.report && !window.confirm("Start a new package review? The current controlled review remains saved and can be reopened by its Review Run ID.")) return;
+  if (state.report && !window.confirm("Start a new document review? The current controlled review remains saved and can be reopened from Run History.")) return;
   state.files = [];
   state.packageName = "";
+  state.documentType = "";
   state.report = null;
+  state.view = "upload";
   state.filters = { query: "", severity: "All", category: "All", document: "All", status: "All", confidence: "All" };
   renderEmpty();
-});
+}
+document.querySelector("#new-review").addEventListener("click", beginNewReview);
 fileInput.addEventListener("change", () => { addFiles([...fileInput.files]); fileInput.value = ""; });
 exportButton.addEventListener("click", (event) => {
   event.stopPropagation();
@@ -928,12 +1170,35 @@ window.addEventListener("beforeunload", (event) => { if (state.unsaved) { event.
 window.addEventListener("popstate", async () => {
   if (!await confirmUnsaved()) return setRoute(true);
   const route = parseRoute();
-  if (route.reviewId === state.report?.review_id) {
-    state.view = route.view || "overview";
+  if (!route.reviewId || route.reviewId === state.report?.review_id) {
+    state.view = route.view || "home";
     state.selectedFindingId = route.findingId || "";
     state.decisionDraft = null;
     renderReport();
   }
+});
+
+document.querySelector("#ask-csvqualreviewer").addEventListener("click", () => navigate("chat"));
+document.querySelector("#sidebar-toggle").addEventListener("click", () => document.body.classList.toggle("sidebar-collapsed"));
+document.querySelectorAll(".notification-button, .profile-button, .topbar-icon[aria-label='Help']").forEach((button) => button.addEventListener("click", () => showToast("This demo control is ready for your organization integration.")));
+const globalSearch = document.querySelector("#global-search");
+workspace.addEventListener("click", (event) => {
+  const target = event.target.closest("[data-review-nav]");
+  if (target) navigate(target.dataset.reviewNav);
+});
+document.addEventListener("keydown", (event) => {
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+    event.preventDefault();
+    globalSearch.focus();
+  }
+});
+globalSearch.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  const query = globalSearch.value.trim().toLowerCase();
+  if (!query) return;
+  if (query.includes("finding") && state.report) navigate("findings");
+  else if ((query.includes("document") || query.includes("report")) && state.report) navigate("documents");
+  else showToast(`Search ready for “${globalSearch.value.trim()}”. Connect organization indexing to return cross-workspace results.`);
 });
 
 restoreLatestReview();

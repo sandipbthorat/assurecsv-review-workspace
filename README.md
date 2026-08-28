@@ -1,8 +1,12 @@
-# AssureCSV
+# CSVQualReviewer
 
-AssureCSV is a local, risk-based review and redlines workspace for computerized-system validation packages. It evaluates deliverables individually and as one evidence system, then turns AI-identified findings into a structured human decision record.
+CSVQualReviewer is a local, risk-based review and redlines workspace for computerized-system validation packages. It evaluates deliverables individually and as one evidence system, then turns AI-identified findings into a structured human decision record.
 
 The current implementation is a deterministic review engine. It uses explicit stages for classification, validation context, document-specific review, requirements, risk, tests, issues, procedure mapping, traceability, consistency, reviewer precedent, finding consolidation, redlining, and final disposition. It does **not** send documents to a cloud service or reduce the package to one generic LLM prompt.
+
+## Enterprise foundation
+
+CSVQualReviewer includes human-in-the-loop decision controls, immutable extracted source content, atomic review persistence, reviewer decision history, audit-relevant events, traceability exports, restrictive browser security headers, and per-request correlation IDs. See [Enterprise Readiness](ENTERPRISE_READINESS.md) for the production architecture, security boundary, validation expectations, and deployment checklist.
 
 ## Run locally with Streamlit
 
@@ -29,6 +33,8 @@ To use a different port:
 ```bash
 python3 app.py 9000
 ```
+
+The dependency-free server also accepts `CSVQUALREVIEWER_HOST` and `CSVQUALREVIEWER_PORT`. The secure default binds only to `127.0.0.1`; expose it externally only behind organization-managed TLS, SSO, authorization, and network controls.
 
 ## Supported files
 
