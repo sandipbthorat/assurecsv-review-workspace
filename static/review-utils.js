@@ -1,7 +1,7 @@
 (function attachReviewUtilities(root, factory) {
   const utilities = factory();
   if (typeof module === "object" && module.exports) module.exports = utilities;
-  if (root) root.AssureCSVUtils = utilities;
+  if (root) root.CSVQualReviewerUtils = utilities;
 }(typeof window !== "undefined" ? window : globalThis, function createReviewUtilities() {
   "use strict";
 
