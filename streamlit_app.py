@@ -55,68 +55,112 @@ st.set_page_config(
 APP_CSS = """
 <style>
   :root {
-    --ink: #17231e;
-    --muted: #617169;
-    --line: #d8e0dc;
-    --green: #247354;
-    --green-dark: #153b2e;
-    --soft: #edf2ef;
+    --ink: #eef4ff;
+    --muted: #98a9c1;
+    --line: #263b55;
+    --line-strong: #344d6a;
+    --panel: #0d1c2f;
+    --panel-soft: #102238;
+    --navy: #071426;
+    --blue: #2c86f7;
+    --green: #42d982;
+    --red: #ff5b5b;
+    --amber: #ffb21e;
+    --violet: #8e5cff;
+    --soft: #13273e;
   }
-  [data-testid="stAppViewContainer"] { background: #f5f7f5; color: var(--ink); }
-  [data-testid="stSidebar"] { background: var(--green-dark); }
-  [data-testid="stSidebar"] * { color: #eef7f2; }
-  [data-testid="stSidebar"] .stRadio label { border-radius: 8px; padding: 0.2rem 0.35rem; }
-  [data-testid="stSidebar"] hr { border-color: rgba(255,255,255,.14); }
-  [data-testid="stHeader"] { background: rgba(245,247,245,.86); }
-  .block-container { max-width: 1500px; padding-top: 2rem; padding-bottom: 4rem; }
+  html, body, [class*="css"] { font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  body { background: var(--navy); }
+  #MainMenu, footer, [data-testid="stToolbar"], [data-testid="stDecoration"], [data-testid="stStatusWidget"] { display:none !important; }
+  [data-testid="stHeader"] { display:none; }
+  [data-testid="stAppViewContainer"] { background: linear-gradient(145deg,#091629 0%,#081525 45%,#0a192b 100%); color:var(--ink); }
+  [data-testid="stMain"] { background: transparent; }
+  [data-testid="stSidebar"] { width: 300px !important; min-width: 300px !important; background:linear-gradient(180deg,#061322,#081729); border-right:1px solid #1f324a; }
+  [data-testid="stSidebar"] > div:first-child { padding: 1.1rem 1rem 2rem; }
+  [data-testid="stSidebar"] * { color:#c8d5e8; }
+  [data-testid="stSidebar"] hr { border-color:#1f334c; margin:.65rem 0; }
+  [data-testid="stSidebar"] .stButton { margin:0 0 .18rem; }
+  [data-testid="stSidebar"] .stButton > button { width:100%; min-height:42px; justify-content:flex-start; padding:.55rem .8rem; border:1px solid transparent; border-radius:8px; color:#c5d2e5; background:transparent; font-size:.88rem; font-weight:520; box-shadow:none; }
+  [data-testid="stSidebar"] .stButton > button:hover { color:#f3f7ff; border-color:#24415f; background:#0f2741; }
+  [data-testid="stSidebar"] .stButton > button[kind="primary"] { color:#79b9ff; border-color:#194b80; border-left:3px solid #2c91ff; background:linear-gradient(90deg,#153b66,#123155); }
+  .block-container { max-width:none; padding:0 2rem 4rem; }
   h1, h2, h3 { letter-spacing: -0.025em; }
-  h1 { font-size: clamp(2rem, 4vw, 3.3rem) !important; }
-  .brand { display:flex; gap:.65rem; align-items:center; padding:.25rem 0 1rem; }
-  .brand-mark { display:grid; place-items:center; width:2.15rem; height:2.15rem; border:1px solid rgba(255,255,255,.45); border-radius:.65rem; font-family:Georgia,serif; font-weight:800; }
-  .brand strong { font-size:1.2rem; }
-  .brand b { color:#86d8b1; }
-  .eyebrow { color:var(--green); font-size:.7rem; font-weight:800; letter-spacing:.12em; text-transform:uppercase; margin-bottom:.25rem; }
-  .hero-copy { color:var(--muted); max-width:860px; font-size:1.02rem; }
+  h1 { color:#f3f7ff !important; font-size:clamp(2rem,3vw,3rem) !important; line-height:1.05 !important; }
+  h2, h3 { color:#eef4ff !important; }
+  p, label, .stCaption, [data-testid="stMarkdownContainer"] { color:#c3cee0; }
+  .sidebar-brand { display:flex; gap:.7rem; align-items:center; padding:.15rem .45rem 1rem; }
+  .sidebar-brand-mark { position:relative; width:38px; height:38px; flex:0 0 38px; }
+  .sidebar-brand-mark i { position:absolute; width:15px; height:15px; border-radius:7px 9px 7px 9px; transform:rotate(-12deg); }
+  .sidebar-brand-mark i:nth-child(1){left:1px;top:1px;background:#5a85ff}.sidebar-brand-mark i:nth-child(2){right:1px;top:7px;background:#865dff}.sidebar-brand-mark i:nth-child(3){left:0;bottom:0;background:#2da8ff}.sidebar-brand-mark i:nth-child(4){right:2px;bottom:1px;background:#2867dc}
+  .sidebar-brand-copy { display:grid; min-width:0; }
+  .sidebar-brand-copy strong { color:#f5f8ff; font-size:1.05rem; letter-spacing:-.03em; white-space:nowrap; }
+  .sidebar-brand-copy small { color:#b4c2d8; font-size:.72rem; }
+  .nav-section { margin:1rem .45rem .35rem; color:#8191aa; font-size:.62rem; font-weight:850; letter-spacing:.13em; text-transform:uppercase; }
+  .sidebar-note { margin:.8rem .45rem 0; padding:.7rem; border:1px solid #243a53; border-radius:7px; color:#8596ae; background:#0a1a2c; font-size:.64rem; line-height:1.5; }
+  .app-topbar { position:sticky; top:0; z-index:20; display:grid; grid-template-columns:44px minmax(280px,640px) 1fr auto; gap:1rem; align-items:center; min-height:74px; margin:0 -2rem 2rem; padding:0 2rem; border-bottom:1px solid #203650; background:rgba(6,18,33,.95); backdrop-filter:blur(14px); }
+  .menu-glyph { color:#b9c7da; font-size:1.45rem; }
+  .top-search { display:flex; gap:.65rem; align-items:center; height:42px; padding:0 .85rem; border:1px solid #2b4260; border-radius:9px; color:#8fa2bd; background:#0b1b2e; }
+  .top-search strong { color:#aebbd0; font-size:1rem; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .top-search kbd { margin-left:auto; padding:.2rem .35rem; border:1px solid #38506e; border-radius:5px; color:#b8c5d8; background:#11243a; font:600 .72rem ui-monospace,monospace; }
+  .top-actions { display:flex; gap:1.25rem; align-items:center; color:#b9c7da; }
+  .top-alert { position:relative; font-size:1.1rem; }.top-alert b{position:absolute;top:-12px;right:-10px;display:grid;width:18px;height:18px;place-items:center;border-radius:50%;color:white;background:#f0504b;font-size:.6rem}
+  .top-avatar { display:grid; width:40px; height:40px; place-items:center; border:3px solid #edf2fb; border-radius:50%; color:#102035; background:#d7a37d; font-size:.78rem; font-weight:900; }
+  .top-profile { display:grid; line-height:1.2; }.top-profile strong{color:#f1f5fc;font-size:.76rem}.top-profile small{color:#91a1b7;font-size:.64rem}
+  .eyebrow { color:#5ea9ff; font-size:.68rem; font-weight:850; letter-spacing:.12em; text-transform:uppercase; margin-bottom:.25rem; }
+  .hero-copy { color:var(--muted); max-width:860px; font-size:1rem; }
   .context-header { display:flex; gap:1rem; align-items:flex-start; justify-content:space-between; margin-bottom:1rem; }
   .context-header h1 { font-size:2rem !important; margin:.1rem 0; }
   .run-line { color:var(--muted); font-size:.78rem; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  .dashboard-intro { margin:.25rem 0 .9rem; }.dashboard-intro p{margin:.35rem 0 0;color:#aebbd0}
+  .dashboard-actions [data-testid="stButton"] > button { min-height:48px; font-size:.92rem; font-weight:800; }
+  .kpi-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:1rem; margin:1.15rem 0; }
+  .kpi-card { position:relative; min-height:180px; overflow:hidden; padding:1.1rem; border:1px solid #2c4260; border-radius:10px; background:linear-gradient(155deg,#102239,#0d1b2e); box-shadow:0 12px 30px rgba(0,0,0,.12); }
+  .kpi-head { display:grid; grid-template-columns:52px 1fr 16px; gap:.8rem; align-items:center; }
+  .kpi-icon { display:grid; width:48px; height:48px; place-items:center; border-radius:50%; font-size:1.25rem; }.kpi-icon.blue{color:#55a7ff;background:#12386a}.kpi-icon.red{color:#ff6464;background:#51282c}.kpi-icon.green{color:#51dc88;background:#154b36}
+  .kpi-copy { display:grid; }.kpi-copy span{color:#aebbd0;font-size:.82rem}.kpi-copy strong{color:#f2f6ff;font-size:1.72rem;line-height:1.1}.kpi-menu{color:#9dabc0;font-size:1.2rem}
+  .kpi-note { margin:.75rem 0 0 64px; color:#bac6d8; font-size:.78rem }.kpi-note b{color:#dce5f2}.kpi-note .down{color:#ff6262}.kpi-note .up{color:#52dc88}
+  .sparkline { position:absolute; left:1rem; right:1rem; bottom:.45rem; width:calc(100% - 2rem); height:48px; }
+  .reviews-panel { margin:1rem 0; border:1px solid #2a405c; border-radius:10px; background:#0e1f34; overflow:hidden; }
+  .reviews-head { display:flex; align-items:center; justify-content:space-between; padding:1rem 1.1rem .6rem; }.reviews-head strong{color:#f1f5ff;font-size:1.05rem}.reviews-head a{color:#4fa8ff;font-size:.75rem;font-weight:800}
+  .review-tabs { display:flex; gap:2rem; padding:0 1.1rem; border-bottom:1px solid #2a405b; }.review-tabs span{padding:.75rem .5rem;color:#b6c3d6;font-size:.78rem}.review-tabs .active{color:#46a1ff;border-bottom:2px solid #348fff}
+  .review-list { padding:0 1.1rem; }.review-row{display:grid;grid-template-columns:52px minmax(0,1fr) 150px 20px;gap:.8rem;align-items:center;min-height:74px;border-bottom:1px solid #2a405b}.review-row:last-child{border-bottom:0}.file-chip{display:grid;width:44px;height:44px;place-items:center;border-radius:7px;color:white;font-size:.72rem;font-weight:850}.file-chip.word{background:#2075e5}.file-chip.pdf{background:#db3e49}.file-chip.xlsx{background:#1b9d52}.review-name{display:grid}.review-name strong{color:#eef4ff;font-size:.82rem}.review-name small{color:#8fa1b9;font-size:.72rem}.review-status{justify-self:end;padding:.32rem .55rem;border:1px solid transparent;border-radius:6px;font-size:.7rem;white-space:nowrap}.review-status.review{color:#c087ff;background:#312453;border-color:#49316b}.review-status.processing{color:#55a9ff;background:#123660;border-color:#184678}.review-status.complete{color:#42dc7f;background:#123f2c;border-color:#185a3b}.review-status.pending{color:#ffb41f;background:#493715;border-color:#5f4717}.review-status.not-started{color:#b8c4d6;background:#1b2b41;border-color:#2a3c55}
+  .module-shell { min-height:360px; padding:1.3rem; border:1px solid #2a405c; border-radius:10px; background:#0d1e32; }.module-shell p{max-width:760px;color:#9fb0c7}.module-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-top:1rem}.module-card{padding:1rem;border:1px solid #293f5a;border-radius:8px;background:#10233a}.module-card span{color:#4fa8ff;font-size:.7rem;font-weight:850;letter-spacing:.08em}.module-card strong{display:block;margin:.4rem 0;color:#eef4ff}.module-card small{color:#91a3ba;line-height:1.5}
   .status-badge,.severity-badge,.category-badge,.confidence-badge { display:inline-flex; width:fit-content; align-items:center; padding:.27rem .52rem; border-radius:999px; font-size:.68rem; font-weight:850; letter-spacing:.045em; white-space:nowrap; }
-  .status-badge { color:#4e5b55; background:#e8eeea; }
-  .status-badge.accepted,.status-badge.resolved,.status-badge.ready-for-approval,.status-badge.review-completed { color:#17613f; background:#dcf2e5; }
-  .status-badge.rejected { color:#842d2d; background:#fbe8e6; }
-  .status-badge.modified { color:#285f8f; background:#eaf3fb; }
-  .status-badge.deferred { color:#7d5313; background:#fbf0d7; }
-  .status-badge.needs-sme-review,.status-badge.reviewer-action-required { color:#5e477c; background:#f1ebf8; }
+  .status-badge { color:#b8c5d6; background:#1c2c42; }
+  .status-badge.accepted,.status-badge.resolved,.status-badge.ready-for-approval,.status-badge.review-completed { color:#45df83; background:#133e2c; }
+  .status-badge.rejected { color:#ff7474; background:#4a2529; }
+  .status-badge.modified { color:#62b0ff; background:#14385e; }
+  .status-badge.deferred { color:#ffc04b; background:#493719; }
+  .status-badge.needs-sme-review,.status-badge.reviewer-action-required { color:#c58cff; background:#352651; }
   .severity-badge { border:1px solid currentColor; text-transform:uppercase; }
-  .severity-badge.critical { color:#8d2525; background:#fff1ef; }
-  .severity-badge.major { color:#925714; background:#fff5dd; }
-  .severity-badge.minor { color:#285e88; background:#edf6fd; }
-  .severity-badge.observation { color:#59665f; background:#f0f3f1; }
-  .category-badge { color:#496058; background:#edf2ef; }
-  .confidence-badge { color:#285f8f; background:#eaf3fb; }
+  .severity-badge.critical { color:#ff6868; background:#472428; }.severity-badge.major { color:#ffb536; background:#493619; }.severity-badge.minor { color:#59aaff; background:#14365a; }.severity-badge.observation { color:#b4c1d2; background:#1c2c41; }
+  .category-badge { color:#b5c2d4; background:#1b2c42; }.confidence-badge { color:#63b3ff; background:#15375a; }
   .finding-head { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; margin-bottom:.7rem; }
   .finding-id { font:800 .76rem ui-monospace,SFMono-Regular,Menlo,monospace; }
-  .finding-title { font:600 1.05rem Georgia,serif; margin:.15rem 0 .35rem; }
+  .finding-title { color:#eff4fc; font:700 1.05rem Inter,sans-serif; margin:.15rem 0 .35rem; }
   .finding-meta { color:var(--muted); font-size:.76rem; }
-  .detail-block { border-left:3px solid #9fb2a7; padding:.65rem .85rem; background:#f7f9f8; border-radius:.25rem; margin:.35rem 0 1rem; }
-  .detail-block.risk { border-left-color:#c3913e; background:#fffaf1; }
+  .detail-block { border-left:3px solid #4b8ac7; padding:.65rem .85rem; background:#0c1b2d; border-radius:.25rem; margin:.35rem 0 1rem; }.detail-block.risk { border-left-color:#d49936; background:#241f18; }
   .detail-label { color:var(--muted); font-size:.64rem; font-weight:850; letter-spacing:.1em; text-transform:uppercase; margin-bottom:.35rem; }
   .source-text { white-space:pre-wrap; overflow-wrap:anywhere; font: .78rem/1.65 ui-monospace,SFMono-Regular,Menlo,monospace; }
-  .redline { white-space:pre-wrap; overflow-wrap:anywhere; font:.82rem/1.8 ui-monospace,SFMono-Regular,Menlo,monospace; padding:1rem; border:1px solid var(--line); border-radius:.55rem; background:white; }
+  .redline { white-space:pre-wrap; overflow-wrap:anywhere; font:.82rem/1.8 ui-monospace,SFMono-Regular,Menlo,monospace; padding:1rem; border:1px solid var(--line); border-radius:.55rem; color:#dbe5f3;background:#09182a; }
   .redline del { color:#8e3030; background:#fee8e6; text-decoration-thickness:1.5px; }
   .redline ins { color:#17613f; background:#dff4e7; text-decoration:none; }
-  .readiness { display:grid; grid-template-columns:minmax(170px,.35fr) 1fr; gap:1.2rem; align-items:center; border:1px solid #b9d0c4; border-radius:.7rem; background:linear-gradient(110deg,#eaf4ef,#fbfcfb); padding:1rem 1.2rem; margin:.4rem 0 1.2rem; }
-  .readiness strong { display:block; font:600 1.35rem Georgia,serif; }
+  .readiness { display:grid; grid-template-columns:minmax(170px,.35fr) 1fr; gap:1.2rem; align-items:center; border:1px solid #2b4563; border-radius:.7rem; background:linear-gradient(110deg,#10283d,#0c1b2e); padding:1rem 1.2rem; margin:.4rem 0 1.2rem; }.readiness strong { display:block; color:#eef4ff;font:700 1.35rem Inter,sans-serif; }
   .readiness ul { margin:.2rem 0; color:var(--muted); font-size:.8rem; }
-  .notice { display:flex; gap:.7rem; padding:.85rem 1rem; border:1px solid #bcd0df; border-radius:.55rem; color:#32596f; background:#f2f8fc; margin:.6rem 0 1rem; font-size:.8rem; }
-  .cloud-note { border:1px solid rgba(255,255,255,.14); background:rgba(255,255,255,.06); border-radius:.55rem; padding:.7rem; font-size:.68rem; line-height:1.5; color:rgba(239,248,243,.75) !important; }
-  [data-testid="stMetric"] { background:#fff; border:1px solid var(--line); border-radius:.65rem; padding:.85rem 1rem; min-height:112px; }
+  .notice { display:flex; gap:.7rem; padding:.85rem 1rem; border:1px solid #31506f; border-radius:.55rem; color:#b9d8f2; background:#10283d; margin:.6rem 0 1rem; font-size:.8rem; }
+  [data-testid="stMetric"] { background:#0e1f34; border:1px solid var(--line); border-radius:.65rem; padding:.85rem 1rem; min-height:112px; }
   [data-testid="stMetricLabel"] { color:var(--muted); }
-  [data-testid="stExpander"] { border-color:var(--line); background:#fff; border-radius:.65rem; }
-  [data-testid="stVerticalBlockBorderWrapper"] { border-color:var(--line); background:#fff; border-radius:.7rem; }
-  .stButton>button[kind="primary"], .stDownloadButton>button[kind="primary"] { background:var(--green-dark); border-color:var(--green-dark); }
-  .stButton>button[kind="primary"]:hover, .stDownloadButton>button[kind="primary"]:hover { background:var(--green); border-color:var(--green); }
-  @media(max-width:800px){ .readiness{grid-template-columns:1fr}.context-header{display:block}.block-container{padding-inline:1rem} }
+  [data-testid="stExpander"], [data-testid="stVerticalBlockBorderWrapper"] { border-color:var(--line)!important; background:#0e1f34!important; border-radius:.7rem; }
+  [data-testid="stFileUploaderDropzone"] { min-height:120px; border:1px dashed #4a6587; border-radius:9px; background:#0a1a2d; }
+  [data-baseweb="input"] > div, [data-baseweb="textarea"] > div, [data-baseweb="select"] > div { color:#e7eef9!important; border-color:#314b68!important; background:#0a192b!important; }
+  input, textarea { color:#e8eef8!important; caret-color:#5baaff!important; }
+  [data-testid="stDataFrame"] { border:1px solid #2b4059; border-radius:8px; overflow:hidden; }
+  .stButton>button, .stDownloadButton>button { border-color:#314b68; color:#dbe6f5; background:#0f2035; }
+  .stButton>button:hover, .stDownloadButton>button:hover { border-color:#4999ed; color:white; background:#173455; }
+  .stButton>button[kind="primary"], .stDownloadButton>button[kind="primary"] { color:white; background:#237ce6; border-color:#237ce6; }.stButton>button[kind="primary"]:hover, .stDownloadButton>button[kind="primary"]:hover { background:#3391ff; border-color:#3391ff; }
+  [data-testid="stAlert"] { border-color:#2c4765; background:#0e2338; }
+  @media(max-width:1100px){.kpi-grid{grid-template-columns:1fr}.module-grid{grid-template-columns:1fr}.top-profile{display:none}.review-row{grid-template-columns:48px minmax(0,1fr) 120px 12px}}
+  @media(max-width:800px){[data-testid="stSidebar"]{width:260px!important;min-width:260px!important}.block-container{padding-inline:1rem}.app-topbar{margin-inline:-1rem;padding-inline:1rem;grid-template-columns:28px 1fr auto}.top-profile{display:none}.context-header{display:block}.readiness{grid-template-columns:1fr}.dashboard-intro h1{font-size:2rem!important}}
 </style>
 """
 
@@ -163,6 +207,7 @@ def set_report(report: dict[str, Any]) -> None:
     refresh_review_state(report)
     session_store().create(report)
     st.session_state.report = report
+    st.session_state.shell_page = "Executive Summary"
     st.session_state.selected_finding = report.get("findings", [{}])[0].get("finding_id", "") if report.get("findings") else ""
 
 
@@ -334,20 +379,61 @@ def unified_redline(finding: dict[str, Any]) -> str:
 
 
 def render_sidebar(report: dict[str, Any] | None) -> str:
+    if "shell_page" not in st.session_state:
+        st.session_state.shell_page = "Home"
+    current = st.session_state.shell_page
+
     st.sidebar.markdown(
-        '<div class="brand"><span class="brand-mark">Q</span><strong>CSVQual<b>Reviewer</b></strong></div>',
+        """
+        <div class="sidebar-brand">
+          <span class="sidebar-brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+          <span class="sidebar-brand-copy"><strong>CSVQualReviewer</strong><small>AI Document Review</small></span>
+        </div>
+        """,
         unsafe_allow_html=True,
     )
+
+    def nav_button(label: str, page: str, key: str) -> None:
+        if st.sidebar.button(
+            label,
+            key=key,
+            type="primary" if current == page else "secondary",
+            width="stretch",
+        ):
+            st.session_state.shell_page = page
+            st.rerun()
+
+    nav_button("⌂   Home", "Home", "nav_home")
+    st.sidebar.markdown('<div class="nav-section">Review workspace</div>', unsafe_allow_html=True)
+    nav_button("♧   My Reviews  ·  12", "Executive Summary", "nav_reviews")
+    nav_button("▤   All Documents", "Documents", "nav_documents")
+    nav_button("⇩   Upload Document   ＋", "Upload", "nav_upload")
+    nav_button("◌   Chat with CSVQualReviewer", "Chat", "nav_chat")
+    nav_button("◷   Findings", "Findings", "nav_findings")
+    nav_button("↶   Run History", "Run History", "nav_history")
+    nav_button("⌁   Feedback & Analytics", "Feedback & Analytics", "nav_feedback")
+
+    st.sidebar.markdown('<div class="nav-section">Reference library</div>', unsafe_allow_html=True)
+    nav_button("▱   All References", "All References", "nav_references")
+    nav_button("▣   Templates", "Templates", "nav_templates")
+    nav_button("♧   SOPs", "SOPs", "nav_sops")
+    nav_button("▧   Golden Reports", "Golden Reports", "nav_golden")
+    nav_button("▤   Guidance Documents", "Guidance Documents", "nav_guidance")
+
+    st.sidebar.markdown('<div class="nav-section">Administration</div>', unsafe_allow_html=True)
+    nav_button("⚙   Review Administrator", "Review Administrator", "nav_review_admin")
+    nav_button("⚙   Platform Administrator", "Platform Administrator", "nav_platform_admin")
+
     if report:
-        page = st.sidebar.radio("Review workspace", PAGES, key="workspace_page")
-        st.sidebar.markdown("---")
-        st.sidebar.caption("REVIEW RUN")
-        st.sidebar.code(report["review_id"], language=None)
+        st.sidebar.markdown('<div class="nav-section">Active review</div>', unsafe_allow_html=True)
+        nav_button("◎   Executive Summary", "Executive Summary", "nav_summary")
+        nav_button("⇄   Traceability", "Traceability", "nav_traceability")
+        nav_button("✎   Redlines", "Redlines", "nav_redlines")
+        nav_button("✓   Review Decisions", "Review Decisions", "nav_decisions")
         st.sidebar.markdown(
-            f'<span class="status-badge {slug(report["review_workflow"]["status"])}">{esc(report["review_workflow"]["status"])}</span>',
+            f'<div class="sidebar-note"><strong>{esc(report["package_name"])}</strong><br>{esc(report["review_id"])}<br>{esc(report["review_workflow"]["status"])}</div>',
             unsafe_allow_html=True,
         )
-        st.sidebar.markdown("---")
         with st.sidebar.expander("Export controlled outputs"):
             file_slug = slug(report["package_name"])
             st.download_button("Review report", report_html(report), f"{file_slug}-review-report.html", "text/html", width="stretch")
@@ -355,18 +441,122 @@ def render_sidebar(report: dict[str, Any] | None) -> str:
             st.download_button("Decision log", decisions_csv(report), f"{file_slug}-decision-log.csv", "text/csv", width="stretch")
             st.download_button("Traceability", traceability_csv(report), f"{file_slug}-traceability.csv", "text/csv", width="stretch")
             st.download_button("Structured JSON", json.dumps(report, indent=2), f"{file_slug}-{report['review_id']}.json", "application/json", width="stretch")
-        if st.sidebar.button("Start a new review", width="stretch"):
-            st.session_state.pop("report", None)
-            st.session_state.pop("selected_finding", None)
-            st.rerun()
-    else:
-        page = "Upload"
-        st.sidebar.markdown("**AI identifies · Human decides**")
     st.sidebar.markdown(
-        '<div class="cloud-note"><strong>Streamlit Cloud workspace</strong><br>Reviewer actions are isolated to this active session. Download the structured record before closing. Configure a validated external datastore before regulated production use.</div>',
+        '<div class="sidebar-note"><strong>Human review required</strong><br>AI findings remain advisory until a qualified reviewer records a disposition.</div>',
         unsafe_allow_html=True,
     )
-    return page
+    return current
+
+
+def render_topbar() -> None:
+    st.markdown(
+        """
+        <div class="app-topbar">
+          <span class="menu-glyph" aria-hidden="true">☰</span>
+          <div class="top-search"><span aria-hidden="true">⌕</span><strong>Search documents, findings, users…</strong><kbd>⌘K</kbd></div>
+          <span></span>
+          <div class="top-actions"><span class="top-alert">♧<b>8</b></span><span>?</span><span class="top-avatar">AN</span><span class="top-profile"><strong>Arvind Narayanamurthy</strong><small>Review Administrator</small></span><span>⌄</span></div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_dashboard(report: dict[str, Any] | None) -> None:
+    intro, actions = st.columns([1.45, .8], gap="large")
+    with intro:
+        st.markdown('<div class="dashboard-intro">', unsafe_allow_html=True)
+        st.title("Welcome back, Arvind 👋")
+        st.markdown("<p>Here’s what’s happening with your reviews today.</p></div>", unsafe_allow_html=True)
+    with actions:
+        left, right = st.columns(2)
+        if left.button("＋  Upload Document", type="primary", width="stretch"):
+            st.session_state.shell_page = "Upload"
+            st.rerun()
+        if right.button("▷  New Review", width="stretch"):
+            st.session_state.shell_page = "Upload"
+            st.rerun()
+
+    st.markdown(
+        """
+        <section class="kpi-grid" aria-label="Review metrics">
+          <article class="kpi-card"><div class="kpi-head"><span class="kpi-icon blue">▤</span><span class="kpi-copy"><span>Documents Reviewed</span><strong>128</strong></span><span class="kpi-menu">⋮</span></div><p class="kpi-note"><b>+18</b> this week</p><svg class="sparkline" viewBox="0 0 300 50" preserveAspectRatio="none"><defs><linearGradient id="violetFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7b48ff" stop-opacity=".35"/><stop offset="1" stop-color="#7b48ff" stop-opacity="0"/></linearGradient></defs><path d="M0 40 L22 35 L44 32 L66 38 L88 28 L110 22 L132 30 L154 25 L176 29 L198 18 L220 21 L242 7 L266 19 L300 2 L300 50 L0 50Z" fill="url(#violetFill)"/><path d="M0 40 L22 35 L44 32 L66 38 L88 28 L110 22 L132 30 L154 25 L176 29 L198 18 L220 21 L242 7 L266 19 L300 2" fill="none" stroke="#8a59ff" stroke-width="1.6"/></svg></article>
+          <article class="kpi-card"><div class="kpi-head"><span class="kpi-icon red">!</span><span class="kpi-copy"><span>Critical Findings</span><strong>23</strong></span><span class="kpi-menu">⋮</span></div><p class="kpi-note"><span class="down">↓ 12%</span> vs last week</p><svg class="sparkline" viewBox="0 0 300 50" preserveAspectRatio="none"><defs><linearGradient id="redFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff4646" stop-opacity=".3"/><stop offset="1" stop-color="#ff4646" stop-opacity="0"/></linearGradient></defs><path d="M0 28 L24 12 L48 27 L72 33 L96 18 L120 31 L144 37 L168 31 L192 27 L216 23 L240 30 L266 20 L286 24 L300 5 L300 50 L0 50Z" fill="url(#redFill)"/><path d="M0 28 L24 12 L48 27 L72 33 L96 18 L120 31 L144 37 L168 31 L192 27 L216 23 L240 30 L266 20 L286 24 L300 5" fill="none" stroke="#ff4545" stroke-width="1.6"/></svg></article>
+          <article class="kpi-card"><div class="kpi-head"><span class="kpi-icon green">◷</span><span class="kpi-copy"><span>Avg. Review Time</span><strong>36<small> min</small></strong></span><span class="kpi-menu">⋮</span></div><p class="kpi-note"><span class="up">↓ 45%</span> vs baseline</p><svg class="sparkline" viewBox="0 0 300 50" preserveAspectRatio="none"><defs><linearGradient id="greenFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#38d77a" stop-opacity=".3"/><stop offset="1" stop-color="#38d77a" stop-opacity="0"/></linearGradient></defs><path d="M0 28 L24 18 L48 15 L72 22 L96 34 L120 27 L144 19 L168 17 L192 14 L216 18 L240 13 L264 9 L286 11 L300 4 L300 50 L0 50Z" fill="url(#greenFill)"/><path d="M0 28 L24 18 L48 15 L72 22 L96 34 L120 27 L144 19 L168 17 L192 14 L216 18 L240 13 L264 9 L286 11 L300 4" fill="none" stroke="#38d77a" stroke-width="1.6"/></svg></article>
+        </section>
+        <section class="reviews-panel">
+          <div class="reviews-head"><strong>My Reviews</strong><a>View all</a></div>
+          <div class="review-tabs"><span class="active">Assigned to me (5)</span><span>In Progress (4)</span><span>Completed</span></div>
+          <div class="review-list">
+            <div class="review-row"><span class="file-chip word">W</span><span class="review-name"><strong>DV Protocol - Temp Monitoring System</strong><small>DV Protocol</small></span><span class="review-status review">In Review</span><span>⋮</span></div>
+            <div class="review-row"><span class="file-chip pdf">PDF</span><span class="review-name"><strong>TMV Report - Patient Arm Module</strong><small>TMV Report</small></span><span class="review-status processing">AI Processing</span><span>⋮</span></div>
+            <div class="review-row"><span class="file-chip xlsx">XLSX</span><span class="review-name"><strong>F-03 Calibration Summary</strong><small>Report</small></span><span class="review-status complete">✓ Completed</span><span>⋮</span></div>
+            <div class="review-row"><span class="file-chip word">W</span><span class="review-name"><strong>DV Plan - Power Management</strong><small>DV Plan</small></span><span class="review-status pending">Pending Uploads</span><span>⋮</span></div>
+            <div class="review-row"><span class="file-chip pdf">PDF</span><span class="review-name"><strong>IQ Report - End of Line Test Station</strong><small>IQ Report</small></span><span class="review-status not-started">Not Started</span><span>⋮</span></div>
+          </div>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("### Start a review")
+    package_name = st.text_input("Package name", placeholder="e.g., MARS 6.2 validation package", key="dashboard_package_name")
+    files = st.file_uploader(
+        "Drag and drop files here or click to browse",
+        type=["pdf", "docx", "xlsx", "xlsm", "csv", "tsv", "txt", "md", "json", "xml", "html", "htm", "yaml", "yml"],
+        accept_multiple_files=True,
+        key="dashboard_files",
+    )
+    start, sample, active = st.columns([1, 1, 1.2])
+    if start.button("Start independent review", type="primary", disabled=not files, width="stretch"):
+        if len(files) > 21:
+            st.error("Add one primary document and no more than 20 supporting documents.")
+        else:
+            with st.spinner("Building the validation evidence graph…"):
+                try:
+                    execute_review(package_name.strip() or "Untitled validation package", uploaded_payload(files))
+                except ValueError as exc:
+                    st.error(str(exc))
+                else:
+                    st.rerun()
+    if sample.button("Use realistic sample package", width="stretch"):
+        with st.spinner("Reviewing the sample validation package…"):
+            execute_review("NovaQMS 2.4 validation package", sample_payload())
+        st.rerun()
+    if report and active.button("Open active review", width="stretch"):
+        st.session_state.shell_page = "Executive Summary"
+        st.rerun()
+
+
+def render_module_shell(page: str, report: dict[str, Any] | None) -> None:
+    descriptions = {
+        "Chat": "Ask grounded questions about the active review. Chat remains scoped to its documents, evidence, findings, and traceability.",
+        "Run History": "Search and reopen review runs with their original inputs, configuration, findings, and reviewer decision record.",
+        "Feedback & Analytics": "Monitor usefulness, false-positive patterns, citation quality, review volume, and cost trends.",
+        "All References": "Manage controlled SOPs, templates, guidance, golden reports, and archived reference versions.",
+        "Templates": "Maintain active and archived document templates used as controlled review context.",
+        "SOPs": "Maintain approved procedures with revision-level traceability and lifecycle status.",
+        "Golden Reports": "Curate approved exemplars used to calibrate review quality and comparison patterns.",
+        "Guidance Documents": "Maintain approved internal standards and guidance used by the review engine.",
+        "Review Administrator": "Manage users, document-type configuration, activation controls, analytics, and organization-scoped audit records.",
+        "Platform Administrator": "Manage organizations, approved models, platform health, tenant isolation, and cross-organization audit.",
+    }
+    copy = descriptions.get(page, "This enterprise workspace is ready for configured organization data.")
+    st.markdown(
+        f"""
+        <section class="module-shell">
+          <div class="eyebrow">CSVQUALREVIEWER WORKSPACE</div><h1>{esc(page)}</h1><p>{esc(copy)}</p>
+          <div class="module-grid"><article class="module-card"><span>01 · CONTROL</span><strong>Governed workspace</strong><small>Role-scoped actions, traceable changes, and human review boundaries remain visible.</small></article><article class="module-card"><span>02 · CONTEXT</span><strong>{'Active review available' if report else 'Ready for organization data'}</strong><small>{esc(report['package_name']) if report else 'Upload a validation package or connect approved enterprise sources.'}</small></article><article class="module-card"><span>03 · STATUS</span><strong>Enterprise integration point</strong><small>This module shell is prepared for validated persistence, SSO, RBAC, and controlled services.</small></article></div>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
+    if report and st.button("Open active review", type="primary"):
+        st.session_state.shell_page = "Executive Summary"
+        st.rerun()
+    elif not report and st.button("Upload a validation package", type="primary"):
+        st.session_state.shell_page = "Upload"
+        st.rerun()
 
 
 def render_header(report: dict[str, Any], title: str, copy: str) -> None:
@@ -830,9 +1020,14 @@ def render_decisions(report: dict[str, Any]) -> None:
 
 report = current_report()
 page = render_sidebar(report)
+render_topbar()
 
-if report is None:
+if page == "Home":
+    render_dashboard(report)
+elif page == "Upload":
     render_upload()
+elif report is None:
+    render_module_shell(page, report)
 elif page == "Executive Summary":
     render_summary(report)
 elif page == "Findings":
@@ -843,5 +1038,7 @@ elif page == "Traceability":
     render_traceability(report)
 elif page == "Redlines":
     render_redlines(report)
-else:
+elif page == "Review Decisions":
     render_decisions(report)
+else:
+    render_module_shell(page, report)
