@@ -14,7 +14,7 @@ class StreamlitAppTests(unittest.TestCase):
 
         self.assertFalse(app.exception)
         self.assertIn(
-            "Turn a validation package into a defensible decision record.",
+            "Welcome back, Arvind 👋",
             [title.value for title in app.title],
         )
 
