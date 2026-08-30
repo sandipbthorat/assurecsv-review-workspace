@@ -1057,11 +1057,23 @@ def render_browser_history_bridge() -> None:
               }, {capture: true});
             }
             const existing = host.__assureCsvRouteHistoryBridge;
-            if (existing && existing.version === 4) return;
+            if (existing && existing.version === 5) return;
             if (existing && existing.listener) host.removeEventListener("popstate", existing.listener);
-            const state = {version: 4};
+            if (existing && existing.shell && existing.shell !== host && existing.listener) {
+              existing.shell.removeEventListener("popstate", existing.listener);
+            }
+            let shell = host;
+            try {
+              if (host.parent && host.parent.location.origin === host.location.origin) {
+                shell = host.parent;
+              }
+            } catch (_) {
+              shell = host;
+            }
+            const state = {version: 5, shell};
             const synchronize = () => {
-              const slug = new URLSearchParams(host.location.search).get("page") || "home";
+              const source = new URLSearchParams(shell.location.search).has("page") ? shell : host;
+              const slug = new URLSearchParams(source.location.search).get("page") || "home";
               host.setTimeout(() => {
                 const key = slug.replaceAll("-", "_");
                 const button = host.document.querySelector(`.st-key-browser_route_${key} button`);
@@ -1071,6 +1083,7 @@ def render_browser_history_bridge() -> None:
             state.listener = synchronize;
             host.__assureCsvRouteHistoryBridge = state;
             host.addEventListener("popstate", synchronize);
+            if (shell !== host) shell.addEventListener("popstate", synchronize);
             host.document.documentElement.dataset.assureCsvHistoryBridge = "ready";
           })();
         </script>
