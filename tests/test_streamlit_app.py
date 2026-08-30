@@ -139,8 +139,92 @@ class StreamlitAppTests(unittest.TestCase):
         next(button for button in app.button if button.label == "⌂   Home").click().run()
         self.assertTrue(any("unsaved reviewer decision" in warning.value.lower() for warning in app.warning))
         self.assertTrue(any("Findings" in markdown.value for markdown in app.markdown))
-        next(button for button in app.button if button.label == "Discard").click().run()
+        next(button for button in app.button if button.label == "Discard and continue").click().run()
         self.assertIn("Welcome back, Demo 👋", [title.value for title in app.title])
+        self.assertFalse(app.exception)
+
+    def test_every_reviewer_page_is_reachable_from_always_visible_navigation(self) -> None:
+        app = AppTest.from_file(ROOT / "streamlit_app.py", default_timeout=30).run()
+        next(button for button in app.button if button.label == "Enter demo workspace").click().run()
+        next(button for button in app.button if button.label == "Use realistic sample package").click().run(timeout=30)
+        expected_pages = {
+            "Home": "Welcome back, Demo",
+            "My Reviews": "My Reviews",
+            "All Documents": "All Documents",
+            "Upload": "Turn a validation package into a defensible decision record",
+            "Document Generation": "Document Generation",
+            "Chat": "Chat with CSVQualReviewer",
+            "Run History": "Run History",
+            "Feedback & Analytics": "Feedback & Analytics",
+            "All References": "All References",
+            "Templates": "Templates",
+            "SOPs": "SOPs",
+            "Golden Reports": "Golden Reports",
+            "Guidance Documents": "Guidance Documents",
+            "Executive Summary": "Executive Summary",
+            "Findings": "Findings",
+            "Documents": "Documents",
+            "Traceability": "Traceability",
+            "Redlines": "Redlines",
+            "Review Decisions": "Review Decisions",
+        }
+        route_slugs = {
+            "Home": "home", "My Reviews": "my-reviews", "All Documents": "all-documents",
+            "Upload": "upload", "Document Generation": "document-generation", "Chat": "chat",
+            "Run History": "run-history", "Feedback & Analytics": "analytics",
+            "All References": "references", "Templates": "templates", "SOPs": "sops",
+            "Golden Reports": "golden-reports", "Guidance Documents": "guidance",
+            "Executive Summary": "executive-summary", "Findings": "findings",
+            "Documents": "review-documents", "Traceability": "traceability", "Redlines": "redlines",
+            "Review Decisions": "review-decisions",
+        }
+        route_picker = next(select for select in app.selectbox if select.label == "Page navigation")
+        self.assertEqual(list(expected_pages), route_picker.options)
+        for page, expected_text in expected_pages.items():
+            with self.subTest(page=page):
+                next(select for select in app.selectbox if select.label == "Page navigation").set_value(page).run(timeout=30)
+                rendered_text = "\n".join(
+                    [title.value for title in app.title]
+                    + [markdown.value for markdown in app.markdown]
+                    + [heading.value for heading in app.subheader]
+                )
+                self.assertIn(expected_text, rendered_text)
+                self.assertEqual([route_slugs[page]], app.query_params["page"])
+                self.assertFalse(app.exception)
+
+    def test_internal_and_browser_history_navigation_stay_synchronized(self) -> None:
+        app = AppTest.from_file(ROOT / "streamlit_app.py", default_timeout=30).run()
+        next(button for button in app.button if button.label == "Enter demo workspace").click().run()
+        next(select for select in app.selectbox if select.label == "Page navigation").set_value("Upload").run()
+        next(select for select in app.selectbox if select.label == "Page navigation").set_value("Run History").run()
+
+        next(button for button in app.button if button.label == "← Back").click().run()
+        self.assertTrue(any("Turn a validation package" in title.value for title in app.title))
+        next(button for button in app.button if button.label == "← Back").click().run()
+        self.assertIn("Welcome back, Demo 👋", [title.value for title in app.title])
+        next(button for button in app.button if button.label == "Forward →").click().run()
+        self.assertTrue(any("Turn a validation package" in title.value for title in app.title))
+
+        app.query_params["page"] = "home"
+        app.run()
+        self.assertIn("Welcome back, Demo 👋", [title.value for title in app.title])
+        app.query_params["page"] = "upload"
+        app.run()
+        self.assertTrue(any("Turn a validation package" in title.value for title in app.title))
+        self.assertFalse(app.exception)
+
+    def test_browser_history_bridge_changes_content_without_rewriting_history(self) -> None:
+        app = AppTest.from_file(ROOT / "streamlit_app.py", default_timeout=30).run()
+        next(button for button in app.button if button.label == "Enter demo workspace").click().run()
+        next(select for select in app.selectbox if select.label == "Page navigation").set_value("Upload").run()
+        next(select for select in app.selectbox if select.label == "Page navigation").set_value("Run History").run()
+
+        next(button for button in app.button if button.label == "Browser route: upload").click().run()
+        self.assertTrue(any("Turn a validation package" in title.value for title in app.title))
+        self.assertEqual(["run-history"], app.query_params["page"])
+        next(button for button in app.button if button.label == "Browser route: run-history").click().run()
+        self.assertIn("Run History", [title.value for title in app.title])
+        self.assertEqual(["run-history"], app.query_params["page"])
         self.assertFalse(app.exception)
 
     def test_production_mode_fails_closed_without_oidc(self) -> None:

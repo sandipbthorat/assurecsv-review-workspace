@@ -51,6 +51,18 @@ DECISION_OPTIONS = (
     "Resolved",
 )
 ROLES = ("Reviewer", "Review Administrator", "Platform Administrator")
+CORE_ROUTES = (
+    "Home",
+    "My Reviews",
+    "All Documents",
+    "Upload",
+    "Document Generation",
+    "Chat",
+    "Run History",
+    "Feedback & Analytics",
+)
+REFERENCE_ROUTES = ("All References", "Templates", "SOPs", "Golden Reports", "Guidance Documents")
+REVIEW_ROUTES = ("Executive Summary", "Findings", "Documents", "Traceability", "Redlines", "Review Decisions")
 ROUTE_SLUGS = {
     "Home": "home",
     "My Reviews": "my-reviews",
@@ -114,7 +126,8 @@ APP_CSS = """
   html, body, [class*="css"] { font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
   body { background: var(--navy); }
   #MainMenu, footer, [data-testid="stToolbar"], [data-testid="stDecoration"], [data-testid="stStatusWidget"] { display:none !important; }
-  [data-testid="stHeader"] { display:none; }
+  [data-testid="stHeader"] { background:transparent!important; }
+  [data-testid="stSidebarCollapsedControl"] { display:block!important; z-index:1000!important; }
   [data-testid="stAppViewContainer"] { background: linear-gradient(145deg,#091629 0%,#081525 45%,#0a192b 100%); color:var(--ink); }
   [data-testid="stMain"] { background: transparent; }
   [data-testid="stSidebar"] { width: 300px !important; min-width: 300px !important; background:linear-gradient(180deg,#061322,#081729); border-right:1px solid #1f324a; }
@@ -148,6 +161,8 @@ APP_CSS = """
   .top-alert { position:relative; font-size:1.1rem; }.top-alert b{position:absolute;top:-12px;right:-10px;display:grid;width:18px;height:18px;place-items:center;border-radius:50%;color:white;background:#f0504b;font-size:.6rem}
   .top-avatar { display:grid; width:40px; height:40px; place-items:center; border:3px solid #edf2fb; border-radius:50%; color:#102035; background:#d7a37d; font-size:.78rem; font-weight:900; }
   .top-profile { display:grid; line-height:1.2; }.top-profile strong{color:#f1f5fc;font-size:.76rem}.top-profile small{color:#91a1b7;font-size:.64rem}
+  .route-context { margin:-1.2rem 0 .35rem; color:#8194ae; font-size:.66rem; font-weight:800; letter-spacing:.09em; text-transform:uppercase; }
+  [class*="st-key-browser_route_"] { display:none!important; }
   .eyebrow { color:#5ea9ff; font-size:.68rem; font-weight:850; letter-spacing:.12em; text-transform:uppercase; margin-bottom:.25rem; }
   .hero-copy { color:var(--muted); max-width:860px; font-size:1rem; }
   .context-header { display:flex; gap:1rem; align-items:flex-start; justify-content:space-between; margin-bottom:1rem; }
@@ -386,16 +401,141 @@ def render_login() -> None:
                         "auth_type": "Unverified demo access",
                         "tenant_id": normalized_email.rsplit("@", 1)[-1],
                     }
-                    st.session_state.shell_page = "Home"
-                    st.query_params["page"] = ROUTE_SLUGS["Home"]
+                    requested_page = SLUG_ROUTES.get(str(st.query_params.get("page", "")), "Home")
+                    navigate(requested_page if page_allowed(requested_page, st.session_state.auth_user) else "Home")
                     st.rerun()
 
 
-def navigate(page: str) -> None:
+def page_allowed(page: str, user: dict[str, str]) -> bool:
+    role = user.get("role", "Reviewer")
+    if page == "Platform Administrator":
+        return role == "Platform Administrator"
+    if page == "Review Administrator":
+        return role in {"Review Administrator", "Platform Administrator"}
+    return page in ROUTE_SLUGS
+
+
+def available_routes(user: dict[str, str]) -> tuple[str, ...]:
+    pages = [*CORE_ROUTES, *REFERENCE_ROUTES, *REVIEW_ROUTES]
+    if user.get("role") in {"Review Administrator", "Platform Administrator"}:
+        pages.append("Review Administrator")
+    if user.get("role") == "Platform Administrator":
+        pages.append("Platform Administrator")
+    return tuple(pages)
+
+
+def _history_state(default_page: str = "Home") -> tuple[list[str], int]:
+    history = st.session_state.get("route_history")
+    cursor = st.session_state.get("route_history_cursor")
+    if not isinstance(history, list) or not history:
+        history = [default_page]
+        cursor = 0
+        st.session_state.route_history = history
+        st.session_state.route_history_cursor = cursor
+    if not isinstance(cursor, int) or cursor < 0 or cursor >= len(history):
+        cursor = len(history) - 1
+        st.session_state.route_history_cursor = cursor
+    return history, cursor
+
+
+def _activate_route(
+    page: str,
+    *,
+    push_history: bool = True,
+    history_cursor: int | None = None,
+    update_query: bool = True,
+) -> None:
     if page not in ROUTE_SLUGS:
         page = "Home"
+    previous_slug = st.session_state.get("last_route_slug")
+    history, cursor = _history_state(page)
+    if history_cursor is not None:
+        cursor = max(0, min(history_cursor, len(history) - 1))
+    elif push_history and history[cursor] != page:
+        history = [*history[: cursor + 1], page]
+        cursor = len(history) - 1
+    st.session_state.route_history = history
+    st.session_state.route_history_cursor = cursor
     st.session_state.shell_page = page
-    st.query_params["page"] = ROUTE_SLUGS[page]
+    route_slug = ROUTE_SLUGS[page]
+    st.session_state.last_route_slug = route_slug
+    if update_query and previous_slug != route_slug:
+        st.query_params["page"] = route_slug
+
+
+def navigate(page: str) -> None:
+    _activate_route(page)
+
+
+def request_navigation(
+    page: str,
+    *,
+    history_cursor: int | None = None,
+    update_query: bool = True,
+) -> bool:
+    current = st.session_state.get("shell_page", "Home")
+    dirty_prefix = st.session_state.get("unsaved_decision_prefix")
+    if dirty_prefix and page != current:
+        st.session_state.pending_navigation = page
+        if history_cursor is not None:
+            st.session_state.pending_history_cursor = history_cursor
+        else:
+            st.session_state.pop("pending_history_cursor", None)
+        return False
+    _activate_route(
+        page,
+        push_history=history_cursor is None,
+        history_cursor=history_cursor,
+        update_query=update_query,
+    )
+    return True
+
+
+def sync_route_from_query(user: dict[str, str]) -> str:
+    """Synchronize session routing with URL changes, including browser Back/Forward."""
+
+    query_slug = str(st.query_params.get("page", "")).strip()
+    browser_route = st.session_state.pop("browser_history_route_applied", None)
+    from_browser_history = browser_route in ROUTE_SLUGS
+    if from_browser_history:
+        query_slug = ROUTE_SLUGS[browser_route]
+    requested = SLUG_ROUTES.get(query_slug, "Home")
+    if not page_allowed(requested, user):
+        requested = "Home"
+    current = st.session_state.get("shell_page")
+    last_slug = st.session_state.get("last_route_slug")
+    if current is None:
+        _activate_route(requested, update_query=query_slug in SLUG_ROUTES)
+        if query_slug not in SLUG_ROUTES:
+            _activate_route("Home")
+        return st.session_state.shell_page
+    if query_slug != last_slug:
+        history, cursor = _history_state(current)
+        target_cursor: int | None = None
+        if cursor > 0 and history[cursor - 1] == requested:
+            target_cursor = cursor - 1
+        elif cursor + 1 < len(history) and history[cursor + 1] == requested:
+            target_cursor = cursor + 1
+        if st.session_state.get("unsaved_decision_prefix") and requested != current:
+            st.session_state.pending_navigation = requested
+            if target_cursor is not None:
+                st.session_state.pending_history_cursor = target_cursor
+            st.session_state.last_route_slug = ROUTE_SLUGS[current]
+            st.query_params["page"] = ROUTE_SLUGS[current]
+        else:
+            _activate_route(
+                requested,
+                push_history=target_cursor is None,
+                history_cursor=target_cursor,
+                update_query=not from_browser_history,
+            )
+    return st.session_state.shell_page
+
+
+def route_picker_changed() -> None:
+    target = st.session_state.get("global_route_picker", "Home")
+    st.session_state.route_picker_page = target
+    request_navigation(target)
 
 
 def mark_decision_dirty(prefix: str) -> None:
@@ -740,10 +880,7 @@ def unified_redline(finding: dict[str, Any]) -> str:
 
 
 def render_sidebar(report: dict[str, Any] | None, user: dict[str, str]) -> str:
-    if "shell_page" not in st.session_state:
-        requested = SLUG_ROUTES.get(str(st.query_params.get("page", "")), "Home")
-        st.session_state.shell_page = requested
-    current = st.session_state.shell_page
+    current = st.session_state.get("shell_page", "Home")
     role = user["role"]
     if current == "Review Administrator" and role not in {"Review Administrator", "Platform Administrator"}:
         navigate("Home")
@@ -769,32 +906,7 @@ def render_sidebar(report: dict[str, Any] | None, user: dict[str, str]) -> str:
             type="primary" if current == page else "secondary",
             width="stretch",
         ):
-            dirty_prefix = st.session_state.get("unsaved_decision_prefix")
-            if dirty_prefix and page != current:
-                st.session_state.pending_navigation = page
-            else:
-                navigate(page)
-            st.rerun()
-
-    pending_navigation = st.session_state.get("pending_navigation")
-    if pending_navigation:
-        destination_label = "signing out" if pending_navigation == "__sign_out__" else f"opening {pending_navigation}"
-        st.sidebar.warning(
-            f"You have an unsaved reviewer decision. Discard it before {destination_label}."
-        )
-        discard, stay = st.sidebar.columns(2)
-        if discard.button("Discard", key="discard_for_navigation", width="stretch"):
-            dirty_prefix = st.session_state.get("unsaved_decision_prefix")
-            if dirty_prefix:
-                clear_decision_state(dirty_prefix)
-            destination = st.session_state.pop("pending_navigation", "Home")
-            if destination == "__sign_out__":
-                sign_out()
-            else:
-                navigate(destination)
-                st.rerun()
-        if stay.button("Stay", key="stay_on_decision", width="stretch"):
-            st.session_state.pop("pending_navigation", None)
+            request_navigation(page)
             st.rerun()
 
     nav_button("⌂   Home", "Home", "nav_home")
@@ -824,6 +936,7 @@ def render_sidebar(report: dict[str, Any] | None, user: dict[str, str]) -> str:
     if report:
         st.sidebar.markdown('<div class="nav-section">Active review</div>', unsafe_allow_html=True)
         nav_button("◎   Executive Summary", "Executive Summary", "nav_summary")
+        nav_button("▤   Documents", "Documents", "nav_review_documents")
         nav_button("⇄   Traceability", "Traceability", "nav_traceability")
         nav_button("✎   Redlines", "Redlines", "nav_redlines")
         nav_button("✓   Review Decisions", "Review Decisions", "nav_decisions")
@@ -862,21 +975,137 @@ def render_sidebar(report: dict[str, Any] | None, user: dict[str, str]) -> str:
     return current
 
 
-def render_topbar(user: dict[str, str], report: dict[str, Any] | None) -> None:
+def render_topbar(user: dict[str, str], report: dict[str, Any] | None, current_page: str) -> None:
     initials = "".join(part[0] for part in user["name"].split()[:2]).upper() or "U"
     open_actions = report.get("metrics", {}).get("open_findings", 0) if report else 0
     alert = f'<span class="top-alert">♧<b>{int(open_actions)}</b></span>' if open_actions else '<span>♧</span>'
     st.markdown(
         f"""
         <div class="app-topbar">
-          <span class="menu-glyph" aria-hidden="true">☰</span>
-          <div class="top-search"><span aria-hidden="true">⌕</span><strong>Search documents, findings, users…</strong><kbd>⌘K</kbd></div>
+          <span class="menu-glyph" aria-hidden="true">◉</span>
+          <div class="top-search"><span aria-hidden="true">↔</span><strong>{esc(current_page)}</strong><kbd>PAGE</kbd></div>
           <span></span>
           <div class="top-actions">{alert}<span>?</span><span class="top-avatar">{esc(initials)}</span><span class="top-profile"><strong>{esc(user['name'])}</strong><small>{esc(user['role'])}</small></span><span>⌄</span></div>
         </div>
         """,
         unsafe_allow_html=True,
     )
+
+
+def render_route_bar(current_page: str, user: dict[str, str]) -> None:
+    routes = available_routes(user)
+    if st.session_state.get("route_picker_page") != current_page:
+        st.session_state.global_route_picker = current_page
+        st.session_state.route_picker_page = current_page
+    history, cursor = _history_state(current_page)
+    st.markdown('<div class="route-context">Always-visible page navigation</div>', unsafe_allow_html=True)
+    page_col, back_col, forward_col, sidebar_col = st.columns([4.2, 1, 1, 1])
+    page_col.selectbox(
+        "Page navigation",
+        routes,
+        key="global_route_picker",
+        on_change=route_picker_changed,
+        label_visibility="collapsed",
+    )
+    if back_col.button("← Back", disabled=cursor <= 0, width="stretch", key="route_back"):
+        request_navigation(history[cursor - 1], history_cursor=cursor - 1)
+        st.rerun()
+    if forward_col.button(
+        "Forward →",
+        disabled=cursor + 1 >= len(history),
+        width="stretch",
+        key="route_forward",
+    ):
+        request_navigation(history[cursor + 1], history_cursor=cursor + 1)
+        st.rerun()
+    sidebar_col.button("☰ Sidebar", width="stretch", key="sidebar_toggle")
+
+
+def render_browser_history_bridge() -> None:
+    """Ask Streamlit to rerun when the browser itself changes route history."""
+
+    current = st.session_state.get("shell_page", "Home")
+    history, cursor = _history_state(current)
+    for page in available_routes(st.session_state.auth_user):
+        slug = ROUTE_SLUGS[page]
+        target_cursor: int | None = None
+        if cursor > 0 and history[cursor - 1] == page:
+            target_cursor = cursor - 1
+        elif cursor + 1 < len(history) and history[cursor + 1] == page:
+            target_cursor = cursor + 1
+        if st.button(f"Browser route: {slug}", key=f"browser_route_{slug.replace('-', '_')}"):
+            if request_navigation(page, history_cursor=target_cursor, update_query=False):
+                st.session_state.browser_history_route_applied = page
+            else:
+                st.query_params["page"] = ROUTE_SLUGS[current]
+            st.rerun()
+    st.iframe(
+        """
+        <script>
+          (() => {
+            const host = window.parent;
+            const toggle = host.document.querySelector(".st-key-sidebar_toggle button");
+            if (toggle && !toggle.dataset.assureCsvSidebarToggle) {
+              toggle.dataset.assureCsvSidebarToggle = "ready";
+              toggle.addEventListener("click", () => {
+                host.setTimeout(() => {
+                  const nativeToggle = host.document.querySelector(
+                    '[data-testid="stSidebarCollapseButton"] button',
+                  );
+                  if (nativeToggle) nativeToggle.click();
+                }, 0);
+              }, {capture: true});
+            }
+            const existing = host.__assureCsvRouteHistoryBridge;
+            if (existing && existing.version === 4) return;
+            if (existing && existing.listener) host.removeEventListener("popstate", existing.listener);
+            const state = {version: 4};
+            const synchronize = () => {
+              const slug = new URLSearchParams(host.location.search).get("page") || "home";
+              host.setTimeout(() => {
+                const key = slug.replaceAll("-", "_");
+                const button = host.document.querySelector(`.st-key-browser_route_${key} button`);
+                if (button) button.click();
+              }, 50);
+            };
+            state.listener = synchronize;
+            host.__assureCsvRouteHistoryBridge = state;
+            host.addEventListener("popstate", synchronize);
+            host.document.documentElement.dataset.assureCsvHistoryBridge = "ready";
+          })();
+        </script>
+        """,
+        height=1,
+        tab_index=-1,
+    )
+
+
+def render_pending_navigation() -> None:
+    destination = st.session_state.get("pending_navigation")
+    if not destination:
+        return
+    destination_label = "signing out" if destination == "__sign_out__" else f"opening {destination}"
+    st.warning(f"You have an unsaved reviewer decision. Discard it before {destination_label}.")
+    discard, stay, _ = st.columns([1, 1, 4])
+    if discard.button("Discard and continue", key="discard_for_navigation", width="stretch"):
+        dirty_prefix = st.session_state.get("unsaved_decision_prefix")
+        if dirty_prefix:
+            clear_decision_state(dirty_prefix)
+        destination = st.session_state.pop("pending_navigation", "Home")
+        history_cursor = st.session_state.pop("pending_history_cursor", None)
+        if destination == "__sign_out__":
+            sign_out()
+        else:
+            _activate_route(
+                destination,
+                push_history=history_cursor is None,
+                history_cursor=history_cursor,
+            )
+            st.rerun()
+    if stay.button("Stay on page", key="stay_on_decision", width="stretch"):
+        st.session_state.pop("pending_navigation", None)
+        st.session_state.pop("pending_history_cursor", None)
+        st.rerun()
 
 
 def render_dashboard(report: dict[str, Any] | None, user: dict[str, str]) -> None:
@@ -2036,9 +2265,13 @@ if user is None:
     render_login()
     st.stop()
 
+page = sync_route_from_query(user)
 report = current_report()
 page = render_sidebar(report, user)
-render_topbar(user, report)
+render_topbar(user, report, page)
+render_route_bar(page, user)
+render_browser_history_bridge()
+render_pending_navigation()
 
 if page == "Home":
     render_dashboard(report, user)
