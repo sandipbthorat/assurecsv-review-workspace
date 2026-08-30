@@ -8,3 +8,5 @@ htmlcov/
 data/reviewer_feedback.json
 data/reviewer_feedback.tmp
 data/reviews/
+data/runtime/
+*.sqlite3

@@ -110,6 +110,23 @@ class ReviewWorkflowTests(unittest.TestCase):
         self.assertEqual(summary_total, affected_total)
         self.assertEqual(report["metrics"]["findings"], len(report["findings"]))
 
+    def test_controlled_export_is_recorded_in_audit_history(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = ReviewStore(Path(directory))
+            report = store.create(fixture_report())
+            store.record_export(report["review_id"], "Traceability CSV", "Quality Reviewer")
+            reloaded = store.load(report["review_id"])
+            event = reloaded["audit_events"][-1]
+            self.assertEqual(event["action"], "Export generated")
+            self.assertEqual(event["new_value"], "Traceability CSV")
+            self.assertEqual(event["user"], "Quality Reviewer")
+
+    def test_store_instances_share_the_same_directory_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            first = ReviewStore(Path(directory))
+            second = ReviewStore(Path(directory))
+            self.assertIs(first._lock, second._lock)
+
 
 if __name__ == "__main__":
     unittest.main()

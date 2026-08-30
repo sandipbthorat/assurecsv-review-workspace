@@ -127,6 +127,9 @@ class CSVQualReviewerHandler(BaseHTTPRequestHandler):
             except ReviewNotFoundError as exc:
                 self._json({"error": str(exc)}, HTTPStatus.NOT_FOUND)
             return
+        if path.startswith("/api/"):
+            self._json({"error": "Endpoint not found."}, HTTPStatus.NOT_FOUND)
+            return
         self._static(path)
 
     def do_POST(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler

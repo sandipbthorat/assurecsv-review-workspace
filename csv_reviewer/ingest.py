@@ -29,6 +29,24 @@ TEXT_EXTENSIONS = {
     ".yml",
     ".log",
 }
+MAX_ARCHIVE_ENTRIES = 10_000
+MAX_ARCHIVE_MEMBER_BYTES = 50 * 1024 * 1024
+MAX_ARCHIVE_EXPANDED_BYTES = 200 * 1024 * 1024
+MAX_COMPRESSION_RATIO = 200
+
+
+def _validate_archive(archive: zipfile.ZipFile) -> None:
+    entries = archive.infolist()
+    if len(entries) > MAX_ARCHIVE_ENTRIES:
+        raise ValueError("The Office file contains too many archive entries.")
+    expanded = sum(entry.file_size for entry in entries)
+    if expanded > MAX_ARCHIVE_EXPANDED_BYTES:
+        raise ValueError("The Office file expands beyond the 200 MB extraction limit.")
+    for entry in entries:
+        if entry.file_size > MAX_ARCHIVE_MEMBER_BYTES:
+            raise ValueError(f"The Office file contains an oversized component: {entry.filename}")
+        if entry.compress_size and entry.file_size / entry.compress_size > MAX_COMPRESSION_RATIO:
+            raise ValueError(f"The Office file contains a suspiciously compressed component: {entry.filename}")
 
 
 def _decode_text(data: bytes) -> str:
@@ -58,6 +76,7 @@ def _xml_text(xml_data: bytes) -> str:
 
 def _extract_docx(data: bytes) -> str:
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        _validate_archive(archive)
         parts = []
         for name in (
             "word/document.xml",
@@ -92,6 +111,7 @@ def _xlsx_value(cell: ET.Element, shared: list[str], ns: dict[str, str]) -> str:
 def _extract_xlsx(data: bytes) -> str:
     ns = {"main": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        _validate_archive(archive)
         shared: list[str] = []
         if "xl/sharedStrings.xml" in archive.namelist():
             root = ET.fromstring(archive.read("xl/sharedStrings.xml"))
@@ -160,7 +180,7 @@ def _extract_pdf(data: bytes) -> tuple[str, list[str]]:
     text = "\n".join(fragment.strip() for fragment in fragments if fragment.strip())
     if not text:
         warnings.append(
-            "No machine-readable PDF text was found. Provide an OCR-enabled PDF or install pypdf for broader extraction support."
+            "OCR required: no machine-readable PDF text was found. Provide an OCR-enabled PDF; this document was not treated as reviewed evidence."
         )
     else:
         warnings.append("PDF was read with the built-in fallback extractor; verify complex tables and encoded text.")
@@ -205,7 +225,7 @@ def decode_upload(item: dict[str, Any], index: int) -> Document:
             warnings.append(
                 f"Unsupported file type {extension or '(none)'}. Use PDF, DOCX, XLSX, CSV, JSON, XML, HTML, Markdown, or text."
             )
-    except (zipfile.BadZipFile, ET.ParseError, KeyError, OSError) as exc:
+    except (zipfile.BadZipFile, ET.ParseError, KeyError, OSError, ValueError) as exc:
         text = ""
         status = "Failed"
         warnings.append(f"Document extraction failed: {exc}")
@@ -229,4 +249,3 @@ def parse_request_files(payload: dict[str, Any]) -> list[Document]:
     if len(files) > 75:
         raise ValueError("A package may contain at most 75 documents per review.")
     return [decode_upload(item, index) for index, item in enumerate(files, start=1)]
-

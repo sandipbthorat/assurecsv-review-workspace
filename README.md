@@ -6,7 +6,7 @@ The current implementation is a deterministic review engine. It uses explicit st
 
 ## Enterprise foundation
 
-CSVQualReviewer includes human-in-the-loop decision controls, immutable extracted source content, atomic review persistence, reviewer decision history, audit-relevant events, traceability exports, restrictive browser security headers, and per-request correlation IDs. See [Enterprise Readiness](ENTERPRISE_READINESS.md) for the production architecture, security boundary, validation expectations, and deployment checklist.
+CSVQualReviewer includes human-in-the-loop decision controls, immutable extracted source content, atomic review persistence, tenant-scoped workspaces, reviewer decision history, audit-relevant events, traceability exports, OIDC-ready role mapping, restrictive browser security headers, and per-request correlation IDs. See [Enterprise Readiness](ENTERPRISE_READINESS.md) for the production architecture, security boundary, validation expectations, and deployment checklist.
 
 ## Run locally with Streamlit
 
@@ -79,11 +79,11 @@ The workspace provides Executive Summary, Findings, Documents, Traceability, Red
 
 Exports are deliberately separated into the review report, findings CSV, selected redlined document, reviewer decision log, traceability report, and complete JSON record. Rejected recommendations are excluded from the final reviewed-document change set; modified findings use reviewer-authored wording.
 
-Review runs and decisions are stored atomically under `data/reviews/` and survive page refresh and tab navigation. The latest review is restored automatically. Reviewer feedback precedents remain stored separately in `data/reviewer_feedback.json`.
+Streamlit review runs and decisions are stored atomically under `data/runtime/<tenant>/reviews/` by default and survive page refresh, tab navigation, and sign-out on the same running instance. The latest tenant review is restored automatically. Reviewer feedback precedents remain stored separately in the same tenant workspace. Set `CSVQUALREVIEWER_DATA_DIR` or `[csvqualreviewer].data_dir` to an organization-managed mounted path for host-level durability.
 
 ## Controlled reviewer feedback
 
-Accepted, rejected, and modified decisions also feed the existing controlled precedent store in `data/reviewer_feedback.json`, which is intentionally ignored by Git.
+Accepted, rejected, and modified decisions also feed the tenant-scoped controlled precedent store, which is intentionally ignored by Git.
 
 On later reviews, substantially similar records are retrieved by document type, category, section context, and semantic similarity. Five consistent false-positive/rejection precedents may suppress a repeated **non-regulatory** pattern into reviewer considerations. Conflicting precedents are surfaced for Quality escalation. Current regulations, controlled procedures, and templates always take priority over reviewer history.
 
@@ -91,7 +91,9 @@ On later reviews, substantially similar records are retrieved by document type, 
 
 This repository is deployment-ready: `streamlit_app.py`, `requirements.txt`, and `.streamlit/config.toml` are all at the repository root. In Streamlit Community Cloud, select this repository, the `main` branch, and `streamlit_app.py` as the entry point.
 
-The cloud workspace isolates decisions to the active Streamlit session. Reviewers should download the complete JSON decision record before ending a session. A regulated, multi-reviewer production deployment should connect the decision store to an organization-controlled, access-controlled, validated persistence layer.
+The public Community Cloud deployment runs in explicit **demo mode**: identity is unverified, access is restricted to the Reviewer role, and instance-local records can be lost when the Community Cloud container is replaced. It must not be used as a regulated system of record. Reviewers should download the complete JSON decision record before relying on a demo run.
+
+For production mode, copy `.streamlit/secrets.example.toml` into the hosting platform's secret manager, configure an organization OIDC provider, set `[csvqualreviewer].mode = "production"`, and provide a durable encrypted record mount. Production mode disables demo login and fails closed when OIDC is missing. `Authlib` is pinned for Streamlit OIDC support. A regulated deployment still requires infrastructure qualification, backup/restore evidence, retention controls, monitoring, and organization-specific validation.
 
 ## Test
 

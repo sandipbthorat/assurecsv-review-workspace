@@ -5,18 +5,26 @@ from __future__ import annotations
 import base64
 import csv
 from datetime import UTC, datetime
+import hashlib
 import html
 import io
 import json
+import os
 from pathlib import Path
-import tempfile
 from typing import Any
-from uuid import uuid4
 
 import pandas as pd
 import streamlit as st
 
 from csv_reviewer import review_package
+from csv_reviewer.document_generator import (
+    DOCUMENT_BLUEPRINTS,
+    build_docx,
+    document_text,
+    generate_document,
+    update_section,
+)
+from csv_reviewer.feedback import FeedbackStore
 from csv_reviewer.ingest import parse_request_files
 from csv_reviewer.models import FINDING_STATUSES, SEVERITIES, SEVERITY_ORDER
 from csv_reviewer.review_store import ReviewCompletionError, ReviewStore
@@ -42,6 +50,40 @@ DECISION_OPTIONS = (
     "Needs SME Review",
     "Resolved",
 )
+ROLES = ("Reviewer", "Review Administrator", "Platform Administrator")
+ROUTE_SLUGS = {
+    "Home": "home",
+    "My Reviews": "my-reviews",
+    "All Documents": "all-documents",
+    "Upload": "upload",
+    "Document Generation": "document-generation",
+    "Chat": "chat",
+    "Findings": "findings",
+    "Run History": "run-history",
+    "Feedback & Analytics": "analytics",
+    "All References": "references",
+    "Templates": "templates",
+    "SOPs": "sops",
+    "Golden Reports": "golden-reports",
+    "Guidance Documents": "guidance",
+    "Review Administrator": "review-administrator",
+    "Platform Administrator": "platform-administrator",
+    "Executive Summary": "executive-summary",
+    "Documents": "review-documents",
+    "Traceability": "traceability",
+    "Redlines": "redlines",
+    "Review Decisions": "review-decisions",
+}
+SLUG_ROUTES = {value: key for key, value in ROUTE_SLUGS.items()}
+MAX_FILE_BYTES = 50 * 1024 * 1024
+MAX_PACKAGE_BYTES = 200 * 1024 * 1024
+OIDC_GROUP_ROLES = {
+    "csvqual-reviewers": "Reviewer",
+    "csvqual-review-administrators": "Review Administrator",
+    "csvqual-platform-administrators": "Platform Administrator",
+    "review administrator": "Review Administrator",
+    "platform administrator": "Platform Administrator",
+}
 
 
 st.set_page_config(
@@ -125,6 +167,22 @@ APP_CSS = """
   .review-tabs { display:flex; gap:2rem; padding:0 1.1rem; border-bottom:1px solid #2a405b; }.review-tabs span{padding:.75rem .5rem;color:#b6c3d6;font-size:.78rem}.review-tabs .active{color:#46a1ff;border-bottom:2px solid #348fff}
   .review-list { padding:0 1.1rem; }.review-row{display:grid;grid-template-columns:52px minmax(0,1fr) 150px 20px;gap:.8rem;align-items:center;min-height:74px;border-bottom:1px solid #2a405b}.review-row:last-child{border-bottom:0}.file-chip{display:grid;width:44px;height:44px;place-items:center;border-radius:7px;color:white;font-size:.72rem;font-weight:850}.file-chip.word{background:#2075e5}.file-chip.pdf{background:#db3e49}.file-chip.xlsx{background:#1b9d52}.review-name{display:grid}.review-name strong{color:#eef4ff;font-size:.82rem}.review-name small{color:#8fa1b9;font-size:.72rem}.review-status{justify-self:end;padding:.32rem .55rem;border:1px solid transparent;border-radius:6px;font-size:.7rem;white-space:nowrap}.review-status.review{color:#c087ff;background:#312453;border-color:#49316b}.review-status.processing{color:#55a9ff;background:#123660;border-color:#184678}.review-status.complete{color:#42dc7f;background:#123f2c;border-color:#185a3b}.review-status.pending{color:#ffb41f;background:#493715;border-color:#5f4717}.review-status.not-started{color:#b8c4d6;background:#1b2b41;border-color:#2a3c55}
   .module-shell { min-height:360px; padding:1.3rem; border:1px solid #2a405c; border-radius:10px; background:#0d1e32; }.module-shell p{max-width:760px;color:#9fb0c7}.module-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-top:1rem}.module-card{padding:1rem;border:1px solid #293f5a;border-radius:8px;background:#10233a}.module-card span{color:#4fa8ff;font-size:.7rem;font-weight:850;letter-spacing:.08em}.module-card strong{display:block;margin:.4rem 0;color:#eef4ff}.module-card small{color:#91a3ba;line-height:1.5}
+  .login-wrap { max-width:1020px; margin:4vh auto 0; }
+  .login-brand { display:flex; gap:.9rem; align-items:center; margin-bottom:2rem; }
+  .login-brand .sidebar-brand-mark { width:48px; height:48px; flex-basis:48px; }
+  .login-brand .sidebar-brand-mark i { width:19px; height:19px; }
+  .login-brand strong { display:block; color:#f5f8ff; font-size:1.45rem; letter-spacing:-.04em; }
+  .login-brand small { color:#96a7bf; }
+  .login-hero { padding:2rem; border:1px solid #2b4260; border-radius:14px; background:linear-gradient(145deg,#10243c,#0b1b2e); box-shadow:0 30px 70px rgba(0,0,0,.22); }
+  .login-hero h1 { max-width:720px; margin:.35rem 0 .8rem; }
+  .login-features { display:grid; grid-template-columns:repeat(3,1fr); gap:.8rem; margin:1.4rem 0 0; }
+  .login-feature { padding:.85rem; border:1px solid #29415e; border-radius:8px; color:#aebed2; background:#0b1d31; font-size:.76rem; }
+  .login-feature strong { display:block; margin-bottom:.25rem; color:#edf4ff; font-size:.82rem; }
+  .signed-in-card { margin:.8rem .2rem .4rem; padding:.75rem; border:1px solid #263e59; border-radius:8px; background:#0b1c2f; }
+  .signed-in-card strong,.signed-in-card small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .signed-in-card strong { color:#f1f6ff!important; font-size:.75rem; }
+  .signed-in-card small { color:#8fa1ba!important; font-size:.64rem; }
+  .access-denied { padding:1.25rem; border:1px solid #6a3c42; border-radius:10px; background:#2a1820; }
   .status-badge,.severity-badge,.category-badge,.confidence-badge { display:inline-flex; width:fit-content; align-items:center; padding:.27rem .52rem; border-radius:999px; font-size:.68rem; font-weight:850; letter-spacing:.045em; white-space:nowrap; }
   .status-badge { color:#b8c5d6; background:#1c2c42; }
   .status-badge.accepted,.status-badge.resolved,.status-badge.ready-for-approval,.status-badge.review-completed { color:#45df83; background:#133e2c; }
@@ -153,14 +211,15 @@ APP_CSS = """
   [data-testid="stExpander"], [data-testid="stVerticalBlockBorderWrapper"] { border-color:var(--line)!important; background:#0e1f34!important; border-radius:.7rem; }
   [data-testid="stFileUploaderDropzone"] { min-height:120px; border:1px dashed #4a6587; border-radius:9px; background:#0a1a2d; }
   [data-baseweb="input"] > div, [data-baseweb="textarea"] > div, [data-baseweb="select"] > div { color:#e7eef9!important; border-color:#314b68!important; background:#0a192b!important; }
-  input, textarea { color:#e8eef8!important; caret-color:#5baaff!important; }
+  [data-testid="stTextAreaRootElement"], [data-testid="stTextInputRootElement"], [data-testid="stSelectbox"] .react-aria-ComboBox > div { color:#e7eef9!important; border-color:#314b68!important; background:#0a192b!important; }
+  input, textarea, [data-testid="stSelectbox"] input { color:#e8eef8!important; caret-color:#5baaff!important; }
   [data-testid="stDataFrame"] { border:1px solid #2b4059; border-radius:8px; overflow:hidden; }
   .stButton>button, .stDownloadButton>button { border-color:#314b68; color:#dbe6f5; background:#0f2035; }
   .stButton>button:hover, .stDownloadButton>button:hover { border-color:#4999ed; color:white; background:#173455; }
   .stButton>button[kind="primary"], .stDownloadButton>button[kind="primary"] { color:white; background:#237ce6; border-color:#237ce6; }.stButton>button[kind="primary"]:hover, .stDownloadButton>button[kind="primary"]:hover { background:#3391ff; border-color:#3391ff; }
   [data-testid="stAlert"] { border-color:#2c4765; background:#0e2338; }
   @media(max-width:1100px){.kpi-grid{grid-template-columns:1fr}.module-grid{grid-template-columns:1fr}.top-profile{display:none}.review-row{grid-template-columns:48px minmax(0,1fr) 120px 12px}}
-  @media(max-width:800px){[data-testid="stSidebar"]{width:260px!important;min-width:260px!important}.block-container{padding-inline:1rem}.app-topbar{margin-inline:-1rem;padding-inline:1rem;grid-template-columns:28px 1fr auto}.top-profile{display:none}.context-header{display:block}.readiness{grid-template-columns:1fr}.dashboard-intro h1{font-size:2rem!important}}
+  @media(max-width:800px){[data-testid="stSidebar"]{width:260px!important;min-width:260px!important}.block-container{padding-inline:1rem}.app-topbar{margin-inline:-1rem;padding-inline:1rem;grid-template-columns:28px 1fr auto}.top-profile{display:none}.context-header{display:block}.readiness{grid-template-columns:1fr}.dashboard-intro h1{font-size:2rem!important}.login-features{grid-template-columns:1fr}.login-hero{padding:1.2rem}}
 </style>
 """
 
@@ -184,6 +243,187 @@ def fmt_time(value: str | None) -> str:
         return value
 
 
+def oidc_configured() -> bool:
+    """Return whether an OIDC provider is configured in Streamlit secrets."""
+    try:
+        auth = st.secrets.get("auth", {})
+    except Exception:
+        return False
+    required = ("redirect_uri", "cookie_secret", "client_id", "client_secret", "server_metadata_url")
+    return bool(auth and all(auth.get(key) for key in required))
+
+
+def app_setting(name: str, default: Any = None) -> Any:
+    """Read a non-secret deployment setting from secrets or the environment."""
+
+    try:
+        configured = st.secrets.get("csvqualreviewer", {})
+    except Exception:
+        configured = {}
+    environment_name = f"CSVQUALREVIEWER_{name.upper()}"
+    return configured.get(name, os.getenv(environment_name, default))
+
+
+def deployment_mode() -> str:
+    value = str(app_setting("mode", "demo")).strip().lower()
+    return value if value in {"demo", "production"} else "demo"
+
+
+def demo_admin_roles_enabled() -> bool:
+    value = str(app_setting("demo_admin_roles", "false")).strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
+def configured_data_root() -> tuple[Path, str]:
+    """Return the configured record root and a truthful durability label."""
+
+    configured = str(app_setting("data_dir", "")).strip()
+    if configured:
+        return Path(configured).expanduser().resolve(), "Configured persistent path"
+    return (ROOT / "data" / "runtime").resolve(), "Instance-local durable path"
+
+
+def safe_namespace(value: str) -> str:
+    readable = slug(value)[:48] or "workspace"
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
+    return f"{readable}-{digest}"
+
+
+def oidc_user() -> dict[str, str] | None:
+    try:
+        if not getattr(st.user, "is_logged_in", False):
+            return None
+        claims = dict(st.user)
+    except Exception:
+        return None
+    groups_claim = claims.get("groups", [])
+    if isinstance(groups_claim, str):
+        groups_claim = [groups_claim]
+    groups = {str(value).strip().lower() for value in groups_claim}
+    claimed_role = str(claims.get("role", ""))
+    if claimed_role in ROLES:
+        role = claimed_role
+    else:
+        mapped_roles = {OIDC_GROUP_ROLES[group] for group in groups if group in OIDC_GROUP_ROLES}
+        role = (
+            "Platform Administrator" if "Platform Administrator" in mapped_roles
+            else "Review Administrator" if "Review Administrator" in mapped_roles
+            else "Reviewer"
+        )
+    name = str(claims.get("name") or claims.get("preferred_username") or claims.get("email") or "Authenticated user")
+    email = str(claims.get("email") or "")
+    tenant = str(
+        claims.get("tenant_id")
+        or claims.get("tid")
+        or claims.get("hd")
+        or (email.rsplit("@", 1)[-1] if "@" in email else "organization")
+    )
+    return {
+        "name": name,
+        "email": email,
+        "role": role,
+        "auth_type": "OIDC SSO",
+        "tenant_id": tenant,
+    }
+
+
+def authenticated_user() -> dict[str, str] | None:
+    return oidc_user() or st.session_state.get("auth_user")
+
+
+def render_login() -> None:
+    st.markdown(
+        """
+        <style>[data-testid="stSidebar"]{display:none!important}.block-container{max-width:1120px;padding:2rem}</style>
+        <div class="login-wrap">
+          <div class="login-brand"><span class="sidebar-brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span><strong>CSVQualReviewer</strong><small>Controlled AI document review workspace</small></span></div>
+          <section class="login-hero"><div class="eyebrow">SECURE WORKSPACE</div><h1>Sign in to review with confidence.</h1><p class="hero-copy">Access is role-scoped. AI recommendations remain advisory until an authorized reviewer records a human decision.</p>
+          <div class="login-features"><div class="login-feature"><strong>Human-controlled decisions</strong>Accept, modify, reject, defer, or escalate every recommendation.</div><div class="login-feature"><strong>Traceable evidence</strong>Keep findings connected to sources, requirements, redlines, and audit events.</div><div class="login-feature"><strong>Enterprise identity ready</strong>Use OIDC SSO when an identity provider is configured.</div></div></section>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown("### Access options")
+    access_tabs = ("Enterprise SSO",) if deployment_mode() == "production" else ("Enterprise SSO", "Demo access")
+    tabs = st.tabs(access_tabs)
+    sso_tab = tabs[0]
+    with sso_tab:
+        st.markdown("**Organization identity provider**")
+        st.caption("Use your company-managed account. Role claims are mapped to Reviewer, Review Administrator, or Platform Administrator access.")
+        if oidc_configured():
+            if st.button("Continue with enterprise SSO", type="primary", width="stretch", key="oidc_login"):
+                st.login()
+        else:
+            st.info("Enterprise SSO is ready to connect. Configure OIDC secrets in Streamlit Cloud to enable this option.")
+            st.button("Enterprise SSO not configured", disabled=True, width="stretch")
+    if deployment_mode() == "production" and not oidc_configured():
+        st.error("Production mode requires configured OIDC secrets. Demo identity and role selection are disabled.")
+    elif len(tabs) > 1:
+        with tabs[1]:
+            st.warning("Public demonstration only — entered identity is not verified and must not be used for regulated records.")
+            with st.form("demo_login_form"):
+                name = st.text_input("Full name", value="Demo Reviewer")
+                email = st.text_input("Work email", value="reviewer@example.com")
+                role = (
+                    st.selectbox("Demo role", ROLES, index=0)
+                    if demo_admin_roles_enabled()
+                    else "Reviewer"
+                )
+                if not demo_admin_roles_enabled():
+                    st.caption("Public demo access is restricted to the Reviewer role.")
+                submitted = st.form_submit_button("Enter demo workspace", type="primary", width="stretch")
+            if submitted:
+                if not name.strip():
+                    st.error("Enter your name.")
+                elif "@" not in email or email.startswith("@") or email.endswith("@"):
+                    st.error("Enter a valid work email address.")
+                else:
+                    normalized_email = email.strip().lower()[:240]
+                    st.session_state.auth_user = {
+                        "name": name.strip()[:120],
+                        "email": normalized_email,
+                        "role": role,
+                        "auth_type": "Unverified demo access",
+                        "tenant_id": normalized_email.rsplit("@", 1)[-1],
+                    }
+                    st.session_state.shell_page = "Home"
+                    st.query_params["page"] = ROUTE_SLUGS["Home"]
+                    st.rerun()
+
+
+def navigate(page: str) -> None:
+    if page not in ROUTE_SLUGS:
+        page = "Home"
+    st.session_state.shell_page = page
+    st.query_params["page"] = ROUTE_SLUGS[page]
+
+
+def mark_decision_dirty(prefix: str) -> None:
+    """Track an edited decision form until it is saved or explicitly discarded."""
+
+    st.session_state.unsaved_decision_prefix = prefix
+
+
+def clear_decision_state(prefix: str) -> None:
+    for suffix in (
+        "disposition", "reviewer", "comment", "modified", "mod_reason",
+        "reject_reason", "duplicate",
+    ):
+        st.session_state.pop(f"{prefix}_{suffix}", None)
+    if st.session_state.get("unsaved_decision_prefix") == prefix:
+        st.session_state.pop("unsaved_decision_prefix", None)
+
+
+def sign_out() -> None:
+    is_oidc = oidc_user() is not None
+    for key in list(st.session_state.keys()):
+        st.session_state.pop(key, None)
+    st.query_params.clear()
+    if is_oidc:
+        st.logout()
+    st.rerun()
+
+
 def finding_badges(finding: dict[str, Any]) -> str:
     score = finding.get("confidence_score")
     confidence = "Not Available" if score is None else f"AI Confidence {score}%"
@@ -197,24 +437,38 @@ def finding_badges(finding: dict[str, Any]) -> str:
 
 
 def session_store() -> ReviewStore:
-    if "store_token" not in st.session_state:
-        st.session_state.store_token = uuid4().hex
-    directory = Path(tempfile.gettempdir()) / "csvqualreviewer-streamlit" / st.session_state.store_token
-    return ReviewStore(directory)
+    user = authenticated_user() or {"tenant_id": "anonymous", "email": "anonymous"}
+    tenant = str(user.get("tenant_id") or user.get("email") or "anonymous").strip().lower()
+    root, _ = configured_data_root()
+    return ReviewStore(root / safe_namespace(tenant) / "reviews")
+
+
+def session_feedback_store() -> FeedbackStore:
+    directory = session_store().directory.parent
+    return FeedbackStore(directory / "reviewer_feedback.json")
+
+
+def record_controlled_export(review_id: str, export_type: str) -> None:
+    user = authenticated_user() or {}
+    reviewer = str(user.get("name") or user.get("email") or "Not Available")
+    session_store().record_export(review_id, export_type, reviewer)
 
 
 def set_report(report: dict[str, Any]) -> None:
     refresh_review_state(report)
     session_store().create(report)
     st.session_state.report = report
-    st.session_state.shell_page = "Executive Summary"
+    navigate("Executive Summary")
     st.session_state.selected_finding = report.get("findings", [{}])[0].get("finding_id", "") if report.get("findings") else ""
 
 
 def current_report() -> dict[str, Any] | None:
     report = st.session_state.get("report")
     if not report:
-        return None
+        report = session_store().latest()
+        if not report:
+            return None
+        st.session_state.report = report
     try:
         report = session_store().load(report["review_id"])
         st.session_state.report = report
@@ -232,6 +486,12 @@ def sample_payload() -> list[dict[str, str]]:
 
 
 def uploaded_payload(files: list[Any]) -> list[dict[str, str]]:
+    sizes = [len(uploaded.getvalue()) for uploaded in files]
+    oversized = [uploaded.name for uploaded, size in zip(files, sizes) if size > MAX_FILE_BYTES]
+    if oversized:
+        raise ValueError("Each file must be 50 MB or smaller: " + ", ".join(oversized[:5]))
+    if sum(sizes) > MAX_PACKAGE_BYTES:
+        raise ValueError("The combined upload must be 200 MB or smaller.")
     return [
         {
             "name": uploaded.name,
@@ -242,10 +502,111 @@ def uploaded_payload(files: list[Any]) -> list[dict[str, str]]:
     ]
 
 
+def csv_cell(value: Any) -> Any:
+    """Prevent spreadsheet software from interpreting exported review text as a formula."""
+    if isinstance(value, str) and value.lstrip().startswith(("=", "+", "-", "@")):
+        return "'" + value
+    return value
+
+
+def write_csv_row(writer: Any, values: list[Any]) -> None:
+    writer.writerow([csv_cell(value) for value in values])
+
+
 def execute_review(package_name: str, files: list[dict[str, str]]) -> None:
     documents = parse_request_files({"files": files})
-    report = review_package(documents, package_name, [])
+    report = review_package(documents, package_name, session_feedback_store().load())
     set_report(report)
+
+
+def source_revision(text: str) -> str:
+    for line in text.splitlines()[:25]:
+        if line.lower().strip().startswith(("revision:", "revision,", "version:")):
+            return line.split(":" if ":" in line else ",", 1)[1].strip()[:100] or "Not identified"
+    return "Not identified"
+
+
+def generation_sources(groups: list[tuple[str, list[Any]]]) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    files: list[Any] = []
+    roles: list[str] = []
+    for role, uploaded_files in groups:
+        files.extend(uploaded_files)
+        roles.extend([role] * len(uploaded_files))
+    payloads = uploaded_payload(files)
+    documents = parse_request_files({"files": payloads})
+    sources = [
+        {
+            "name": document.name,
+            "role": role,
+            "revision": source_revision(document.text),
+            "text": document.text,
+            "extraction_status": document.extraction_status,
+            "warnings": document.warnings,
+        }
+        for document, role in zip(documents, roles)
+    ]
+    return sources, payloads
+
+
+def demo_generation_inputs() -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, str]]]:
+    records = [
+        {
+            "name": "VP-TEMPLATE-003.docx",
+            "role": "Template",
+            "revision": "3.1",
+            "text": "\n".join((
+                "1. Purpose", "2. Scope", "3. System Overview", "4. Roles and Responsibilities",
+                "5. Validation Strategy", "6. Deliverables", "7. Risk Management",
+                "8. Traceability", "9. Schedule and Milestones", "10. Acceptance Criteria",
+                "11. Approval and Release",
+            )),
+            "extraction_status": "Complete",
+            "warnings": [],
+        },
+        {
+            "name": "SOP-CSV-005.txt",
+            "role": "Procedure",
+            "revision": "5.2",
+            "text": (
+                "Purpose: Define the risk-based lifecycle for computerized system validation. "
+                "The validation owner shall maintain traceability from approved requirements and risks to executed tests. "
+                "Quality Assurance shall independently review validation deliverables, deviations, and objective evidence. "
+                "Unresolved critical or major deviations shall prevent release. Records shall be retained under the approved retention schedule."
+            ),
+            "extraction_status": "Complete",
+            "warnings": [],
+        },
+        {
+            "name": "NovaQMS-Validation-Plan.txt",
+            "role": "Plan",
+            "revision": "1.0",
+            "text": (
+                "NovaQMS version 2.4 supports regulated CAPA and nonconformance records. "
+                "The scope includes corporate SSO, audit trails, electronic signatures, retention, and the MES disposition interface. "
+                "The CSV Lead owns validation; Quality Systems owns the application; Quality Assurance provides independent approval. "
+                "Deliverables include the requirements specification, risk assessment, configuration specification, IQ, OQ, traceability matrix, and validation summary report. "
+                "Release requires approved deliverables, complete traceability, passed tests, and closed approval-blocking deviations."
+            ),
+            "extraction_status": "Complete",
+            "warnings": [],
+        },
+    ]
+    payloads = [
+        {"name": item["name"], "content": item["text"], "encoding": "text"}
+        for item in records
+    ]
+    metadata = {
+        "document_type": "Validation Plan",
+        "title": "NovaQMS 2.4 Validation Plan",
+        "document_id": "VP-NOVAQMS-002",
+        "revision": "0.1",
+        "system": "NovaQMS 2.4",
+        "owner": "CSV Lead",
+        "purpose": "Define the risk-based validation strategy, responsibilities, deliverables, and acceptance criteria for NovaQMS 2.4.",
+        "scope": "Corporate SSO, regulated quality workflows, audit trails, electronic signatures, retention, and the MES disposition interface.",
+        "risk_classification": "GxP / High",
+    }
+    return metadata, records, payloads
 
 
 def findings_csv(findings: list[dict[str, Any]]) -> bytes:
@@ -259,7 +620,7 @@ def findings_csv(findings: list[dict[str, Any]]) -> bytes:
         ]
     )
     for finding in findings:
-        writer.writerow(
+        write_csv_row(writer,
             [
                 finding.get("finding_id"), finding.get("severity"), finding.get("category"),
                 finding.get("document"), finding.get("section"), finding.get("finding"),
@@ -285,7 +646,7 @@ def decisions_csv(report: dict[str, Any]) -> bytes:
     for finding in report["findings"]:
         if finding["status"] == "Open":
             continue
-        writer.writerow(
+        write_csv_row(writer,
             [
                 finding["finding_id"], finding["severity"], finding["document"],
                 finding["proposed_text"], finding["status"], finding.get("reviewer_comment"),
@@ -305,7 +666,7 @@ def traceability_csv(report: dict[str, Any]) -> bytes:
     )
     for finding in report["findings"]:
         basis = (finding.get("review_basis") or [{}])[0]
-        writer.writerow(
+        write_csv_row(writer,
             [
                 finding["finding_id"], finding["severity"], finding["document"], finding["section"],
                 basis.get("source_name", "Not Available"), basis.get("verification_status", "Needs Verification"),
@@ -378,10 +739,18 @@ def unified_redline(finding: dict[str, Any]) -> str:
     return f'<div class="redline">{"".join(output)}</div>'
 
 
-def render_sidebar(report: dict[str, Any] | None) -> str:
+def render_sidebar(report: dict[str, Any] | None, user: dict[str, str]) -> str:
     if "shell_page" not in st.session_state:
-        st.session_state.shell_page = "Home"
+        requested = SLUG_ROUTES.get(str(st.query_params.get("page", "")), "Home")
+        st.session_state.shell_page = requested
     current = st.session_state.shell_page
+    role = user["role"]
+    if current == "Review Administrator" and role not in {"Review Administrator", "Platform Administrator"}:
+        navigate("Home")
+        current = "Home"
+    if current == "Platform Administrator" and role != "Platform Administrator":
+        navigate("Home")
+        current = "Home"
 
     st.sidebar.markdown(
         """
@@ -400,14 +769,40 @@ def render_sidebar(report: dict[str, Any] | None) -> str:
             type="primary" if current == page else "secondary",
             width="stretch",
         ):
-            st.session_state.shell_page = page
+            dirty_prefix = st.session_state.get("unsaved_decision_prefix")
+            if dirty_prefix and page != current:
+                st.session_state.pending_navigation = page
+            else:
+                navigate(page)
+            st.rerun()
+
+    pending_navigation = st.session_state.get("pending_navigation")
+    if pending_navigation:
+        destination_label = "signing out" if pending_navigation == "__sign_out__" else f"opening {pending_navigation}"
+        st.sidebar.warning(
+            f"You have an unsaved reviewer decision. Discard it before {destination_label}."
+        )
+        discard, stay = st.sidebar.columns(2)
+        if discard.button("Discard", key="discard_for_navigation", width="stretch"):
+            dirty_prefix = st.session_state.get("unsaved_decision_prefix")
+            if dirty_prefix:
+                clear_decision_state(dirty_prefix)
+            destination = st.session_state.pop("pending_navigation", "Home")
+            if destination == "__sign_out__":
+                sign_out()
+            else:
+                navigate(destination)
+                st.rerun()
+        if stay.button("Stay", key="stay_on_decision", width="stretch"):
+            st.session_state.pop("pending_navigation", None)
             st.rerun()
 
     nav_button("⌂   Home", "Home", "nav_home")
     st.sidebar.markdown('<div class="nav-section">Review workspace</div>', unsafe_allow_html=True)
-    nav_button("♧   My Reviews  ·  12", "Executive Summary", "nav_reviews")
-    nav_button("▤   All Documents", "Documents", "nav_documents")
+    nav_button("♧   My Reviews", "My Reviews", "nav_reviews")
+    nav_button("▤   All Documents", "All Documents", "nav_documents")
     nav_button("⇩   Upload Document   ＋", "Upload", "nav_upload")
+    nav_button("✦   Document Generation", "Document Generation", "nav_generation")
     nav_button("◌   Chat with CSVQualReviewer", "Chat", "nav_chat")
     nav_button("◷   Findings", "Findings", "nav_findings")
     nav_button("↶   Run History", "Run History", "nav_history")
@@ -420,9 +815,11 @@ def render_sidebar(report: dict[str, Any] | None) -> str:
     nav_button("▧   Golden Reports", "Golden Reports", "nav_golden")
     nav_button("▤   Guidance Documents", "Guidance Documents", "nav_guidance")
 
-    st.sidebar.markdown('<div class="nav-section">Administration</div>', unsafe_allow_html=True)
-    nav_button("⚙   Review Administrator", "Review Administrator", "nav_review_admin")
-    nav_button("⚙   Platform Administrator", "Platform Administrator", "nav_platform_admin")
+    if role in {"Review Administrator", "Platform Administrator"}:
+        st.sidebar.markdown('<div class="nav-section">Administration</div>', unsafe_allow_html=True)
+        nav_button("⚙   Review Administrator", "Review Administrator", "nav_review_admin")
+    if role == "Platform Administrator":
+        nav_button("⚙   Platform Administrator", "Platform Administrator", "nav_platform_admin")
 
     if report:
         st.sidebar.markdown('<div class="nav-section">Active review</div>', unsafe_allow_html=True)
@@ -436,64 +833,93 @@ def render_sidebar(report: dict[str, Any] | None) -> str:
         )
         with st.sidebar.expander("Export controlled outputs"):
             file_slug = slug(report["package_name"])
-            st.download_button("Review report", report_html(report), f"{file_slug}-review-report.html", "text/html", width="stretch")
-            st.download_button("Findings CSV", findings_csv(report["findings"]), f"{file_slug}-findings.csv", "text/csv", width="stretch")
-            st.download_button("Decision log", decisions_csv(report), f"{file_slug}-decision-log.csv", "text/csv", width="stretch")
-            st.download_button("Traceability", traceability_csv(report), f"{file_slug}-traceability.csv", "text/csv", width="stretch")
-            st.download_button("Structured JSON", json.dumps(report, indent=2), f"{file_slug}-{report['review_id']}.json", "application/json", width="stretch")
+            review_id = report["review_id"]
+            st.download_button("Review report", report_html(report), f"{file_slug}-review-report.html", "text/html", width="stretch", on_click=record_controlled_export, args=(review_id, "Review report"))
+            st.download_button("Findings CSV", findings_csv(report["findings"]), f"{file_slug}-findings.csv", "text/csv", width="stretch", on_click=record_controlled_export, args=(review_id, "Findings CSV"))
+            st.download_button("Decision log", decisions_csv(report), f"{file_slug}-decision-log.csv", "text/csv", width="stretch", on_click=record_controlled_export, args=(review_id, "Decision log"))
+            st.download_button("Traceability", traceability_csv(report), f"{file_slug}-traceability.csv", "text/csv", width="stretch", on_click=record_controlled_export, args=(review_id, "Traceability CSV"))
+            st.download_button("Structured JSON", json.dumps(report, indent=2), f"{file_slug}-{review_id}.json", "application/json", width="stretch", on_click=record_controlled_export, args=(review_id, "Structured JSON"))
     st.sidebar.markdown(
         '<div class="sidebar-note"><strong>Human review required</strong><br>AI findings remain advisory until a qualified reviewer records a disposition.</div>',
         unsafe_allow_html=True,
     )
+    _, durability = configured_data_root()
+    identity_status = "OIDC SSO" if user.get("auth_type") == "OIDC SSO" else "Unverified demo identity"
+    st.sidebar.markdown(
+        f'<div class="sidebar-note"><strong>Deployment controls</strong><br>{esc(identity_status)}<br>{esc(durability)}<br>Mode: {esc(deployment_mode().title())}</div>',
+        unsafe_allow_html=True,
+    )
+    st.sidebar.markdown(
+        f'<div class="signed-in-card"><strong>{esc(user["name"])}</strong><small>{esc(user["email"])}</small><small>{esc(role)} · {esc(user["auth_type"])}</small></div>',
+        unsafe_allow_html=True,
+    )
+    if st.sidebar.button("Sign out", key="sign_out", width="stretch"):
+        if st.session_state.get("unsaved_decision_prefix"):
+            st.session_state.pending_navigation = "__sign_out__"
+            st.rerun()
+        else:
+            sign_out()
     return current
 
 
-def render_topbar() -> None:
+def render_topbar(user: dict[str, str], report: dict[str, Any] | None) -> None:
+    initials = "".join(part[0] for part in user["name"].split()[:2]).upper() or "U"
+    open_actions = report.get("metrics", {}).get("open_findings", 0) if report else 0
+    alert = f'<span class="top-alert">♧<b>{int(open_actions)}</b></span>' if open_actions else '<span>♧</span>'
     st.markdown(
-        """
+        f"""
         <div class="app-topbar">
           <span class="menu-glyph" aria-hidden="true">☰</span>
           <div class="top-search"><span aria-hidden="true">⌕</span><strong>Search documents, findings, users…</strong><kbd>⌘K</kbd></div>
           <span></span>
-          <div class="top-actions"><span class="top-alert">♧<b>8</b></span><span>?</span><span class="top-avatar">AN</span><span class="top-profile"><strong>Arvind Narayanamurthy</strong><small>Review Administrator</small></span><span>⌄</span></div>
+          <div class="top-actions">{alert}<span>?</span><span class="top-avatar">{esc(initials)}</span><span class="top-profile"><strong>{esc(user['name'])}</strong><small>{esc(user['role'])}</small></span><span>⌄</span></div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
 
-def render_dashboard(report: dict[str, Any] | None) -> None:
+def render_dashboard(report: dict[str, Any] | None, user: dict[str, str]) -> None:
+    first_name = user["name"].split()[0] if user["name"].split() else "Reviewer"
     intro, actions = st.columns([1.45, .8], gap="large")
     with intro:
         st.markdown('<div class="dashboard-intro">', unsafe_allow_html=True)
-        st.title("Welcome back, Arvind 👋")
+        st.title(f"Welcome back, {first_name} 👋")
         st.markdown("<p>Here’s what’s happening with your reviews today.</p></div>", unsafe_allow_html=True)
     with actions:
         left, right = st.columns(2)
-        if left.button("＋  Upload Document", type="primary", width="stretch"):
-            st.session_state.shell_page = "Upload"
+        if left.button("✦  Generate Document", type="primary", width="stretch"):
+            navigate("Document Generation")
             st.rerun()
         if right.button("▷  New Review", width="stretch"):
-            st.session_state.shell_page = "Upload"
+            navigate("Upload")
             st.rerun()
 
+    metrics = report.get("metrics", {}) if report else {}
+    document_count = metrics.get("documents", 0)
+    critical_count = metrics.get("severity_counts", {}).get("Critical", 0)
+    open_count = metrics.get("open_findings", 0)
+    decision_count = max(0, metrics.get("findings", 0) - open_count)
+    if report:
+        workflow = report["review_workflow"]
+        review_rows = (
+            f'<div class="review-row"><span class="file-chip word">R</span>'
+            f'<span class="review-name"><strong>{esc(report["package_name"])}</strong><small>{esc(report["review_id"])}</small></span>'
+            f'<span class="review-status review">{esc(workflow["status"])}</span><span>⋮</span></div>'
+        )
+    else:
+        review_rows = '<div class="review-row"><span class="file-chip word">—</span><span class="review-name"><strong>No active review</strong><small>Upload a package or use the sample to begin.</small></span><span class="review-status not-started">Not Started</span><span>⋮</span></div>'
     st.markdown(
-        """
+        f"""
         <section class="kpi-grid" aria-label="Review metrics">
-          <article class="kpi-card"><div class="kpi-head"><span class="kpi-icon blue">▤</span><span class="kpi-copy"><span>Documents Reviewed</span><strong>128</strong></span><span class="kpi-menu">⋮</span></div><p class="kpi-note"><b>+18</b> this week</p><svg class="sparkline" viewBox="0 0 300 50" preserveAspectRatio="none"><defs><linearGradient id="violetFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7b48ff" stop-opacity=".35"/><stop offset="1" stop-color="#7b48ff" stop-opacity="0"/></linearGradient></defs><path d="M0 40 L22 35 L44 32 L66 38 L88 28 L110 22 L132 30 L154 25 L176 29 L198 18 L220 21 L242 7 L266 19 L300 2 L300 50 L0 50Z" fill="url(#violetFill)"/><path d="M0 40 L22 35 L44 32 L66 38 L88 28 L110 22 L132 30 L154 25 L176 29 L198 18 L220 21 L242 7 L266 19 L300 2" fill="none" stroke="#8a59ff" stroke-width="1.6"/></svg></article>
-          <article class="kpi-card"><div class="kpi-head"><span class="kpi-icon red">!</span><span class="kpi-copy"><span>Critical Findings</span><strong>23</strong></span><span class="kpi-menu">⋮</span></div><p class="kpi-note"><span class="down">↓ 12%</span> vs last week</p><svg class="sparkline" viewBox="0 0 300 50" preserveAspectRatio="none"><defs><linearGradient id="redFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff4646" stop-opacity=".3"/><stop offset="1" stop-color="#ff4646" stop-opacity="0"/></linearGradient></defs><path d="M0 28 L24 12 L48 27 L72 33 L96 18 L120 31 L144 37 L168 31 L192 27 L216 23 L240 30 L266 20 L286 24 L300 5 L300 50 L0 50Z" fill="url(#redFill)"/><path d="M0 28 L24 12 L48 27 L72 33 L96 18 L120 31 L144 37 L168 31 L192 27 L216 23 L240 30 L266 20 L286 24 L300 5" fill="none" stroke="#ff4545" stroke-width="1.6"/></svg></article>
-          <article class="kpi-card"><div class="kpi-head"><span class="kpi-icon green">◷</span><span class="kpi-copy"><span>Avg. Review Time</span><strong>36<small> min</small></strong></span><span class="kpi-menu">⋮</span></div><p class="kpi-note"><span class="up">↓ 45%</span> vs baseline</p><svg class="sparkline" viewBox="0 0 300 50" preserveAspectRatio="none"><defs><linearGradient id="greenFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#38d77a" stop-opacity=".3"/><stop offset="1" stop-color="#38d77a" stop-opacity="0"/></linearGradient></defs><path d="M0 28 L24 18 L48 15 L72 22 L96 34 L120 27 L144 19 L168 17 L192 14 L216 18 L240 13 L264 9 L286 11 L300 4 L300 50 L0 50Z" fill="url(#greenFill)"/><path d="M0 28 L24 18 L48 15 L72 22 L96 34 L120 27 L144 19 L168 17 L192 14 L216 18 L240 13 L264 9 L286 11 L300 4" fill="none" stroke="#38d77a" stroke-width="1.6"/></svg></article>
+          <article class="kpi-card"><div class="kpi-head"><span class="kpi-icon blue">▤</span><span class="kpi-copy"><span>Documents in Current Review</span><strong>{document_count}</strong></span><span class="kpi-menu">⋮</span></div><p class="kpi-note">Session-scoped controlled record</p></article>
+          <article class="kpi-card"><div class="kpi-head"><span class="kpi-icon red">!</span><span class="kpi-copy"><span>Critical Findings</span><strong>{critical_count}</strong></span><span class="kpi-menu">⋮</span></div><p class="kpi-note">Current independent review</p></article>
+          <article class="kpi-card"><div class="kpi-head"><span class="kpi-icon green">✓</span><span class="kpi-copy"><span>Human Decisions</span><strong>{decision_count}</strong></span><span class="kpi-menu">⋮</span></div><p class="kpi-note"><b>{open_count}</b> open reviewer actions</p></article>
         </section>
         <section class="reviews-panel">
-          <div class="reviews-head"><strong>My Reviews</strong><a>View all</a></div>
-          <div class="review-tabs"><span class="active">Assigned to me (5)</span><span>In Progress (4)</span><span>Completed</span></div>
-          <div class="review-list">
-            <div class="review-row"><span class="file-chip word">W</span><span class="review-name"><strong>DV Protocol - Temp Monitoring System</strong><small>DV Protocol</small></span><span class="review-status review">In Review</span><span>⋮</span></div>
-            <div class="review-row"><span class="file-chip pdf">PDF</span><span class="review-name"><strong>TMV Report - Patient Arm Module</strong><small>TMV Report</small></span><span class="review-status processing">AI Processing</span><span>⋮</span></div>
-            <div class="review-row"><span class="file-chip xlsx">XLSX</span><span class="review-name"><strong>F-03 Calibration Summary</strong><small>Report</small></span><span class="review-status complete">✓ Completed</span><span>⋮</span></div>
-            <div class="review-row"><span class="file-chip word">W</span><span class="review-name"><strong>DV Plan - Power Management</strong><small>DV Plan</small></span><span class="review-status pending">Pending Uploads</span><span>⋮</span></div>
-            <div class="review-row"><span class="file-chip pdf">PDF</span><span class="review-name"><strong>IQ Report - End of Line Test Station</strong><small>IQ Report</small></span><span class="review-status not-started">Not Started</span><span>⋮</span></div>
-          </div>
+          <div class="reviews-head"><strong>My Reviews</strong></div>
+          <div class="review-tabs"><span class="active">Current session ({1 if report else 0})</span></div>
+          <div class="review-list">{review_rows}</div>
         </section>
         """,
         unsafe_allow_html=True,
@@ -524,39 +950,452 @@ def render_dashboard(report: dict[str, Any] | None) -> None:
             execute_review("NovaQMS 2.4 validation package", sample_payload())
         st.rerun()
     if report and active.button("Open active review", width="stretch"):
-        st.session_state.shell_page = "Executive Summary"
+        navigate("Executive Summary")
         st.rerun()
 
 
-def render_module_shell(page: str, report: dict[str, Any] | None) -> None:
-    descriptions = {
-        "Chat": "Ask grounded questions about the active review. Chat remains scoped to its documents, evidence, findings, and traceability.",
-        "Run History": "Search and reopen review runs with their original inputs, configuration, findings, and reviewer decision record.",
-        "Feedback & Analytics": "Monitor usefulness, false-positive patterns, citation quality, review volume, and cost trends.",
-        "All References": "Manage controlled SOPs, templates, guidance, golden reports, and archived reference versions.",
-        "Templates": "Maintain active and archived document templates used as controlled review context.",
-        "SOPs": "Maintain approved procedures with revision-level traceability and lifecycle status.",
-        "Golden Reports": "Curate approved exemplars used to calibrate review quality and comparison patterns.",
-        "Guidance Documents": "Maintain approved internal standards and guidance used by the review engine.",
-        "Review Administrator": "Manage users, document-type configuration, activation controls, analytics, and organization-scoped audit records.",
-        "Platform Administrator": "Manage organizations, approved models, platform health, tenant isolation, and cross-organization audit.",
-    }
-    copy = descriptions.get(page, "This enterprise workspace is ready for configured organization data.")
+def render_workspace_header(title: str, copy: str) -> None:
+    st.markdown('<div class="eyebrow">CSVQUALREVIEWER WORKSPACE</div>', unsafe_allow_html=True)
+    st.title(title)
+    st.markdown(f'<p class="hero-copy">{esc(copy)}</p>', unsafe_allow_html=True)
+
+
+def render_no_review(copy: str) -> None:
+    st.info(copy)
+    if st.button("Start a review", type="primary", key=f"empty_{slug(copy)}"):
+        navigate("Upload")
+        st.rerun()
+
+
+def render_my_reviews(report: dict[str, Any] | None) -> None:
+    render_workspace_header("My Reviews", "Reopen assigned work and continue from the current human-review state.")
+    if not report:
+        render_no_review("No reviews are assigned in this demo session yet.")
+        return
+    workflow = report["review_workflow"]
+    st.dataframe(
+        pd.DataFrame(
+            [{
+                "Review": report["package_name"],
+                "Run ID": report["review_id"],
+                "Status": workflow["status"],
+                "Readiness": workflow["package_readiness"],
+                "Findings": report["metrics"]["findings"],
+                "Open actions": report["metrics"]["open_findings"],
+            }]
+        ),
+        hide_index=True,
+        width="stretch",
+    )
+    if st.button("Open review workspace", type="primary"):
+        navigate("Executive Summary")
+        st.rerun()
+
+
+def render_all_documents(report: dict[str, Any] | None) -> None:
+    render_workspace_header("All Documents", "Browse the source documents in reviews available to this signed-in session.")
+    if not report:
+        render_no_review("No validation documents are available. Upload a package to build the document inventory.")
+        return
+    rows = []
+    for item in report.get("document_summaries", []):
+        rows.append({
+            "Document": item["document_name"],
+            "Type": item["document_type"],
+            "Revision": item["revision"],
+            "Extraction": item.get("extraction_status", "Not Available"),
+            "Findings": item["finding_count"],
+            "Open": item["open_count"],
+            "Highest unresolved": item["highest_unresolved_severity"],
+        })
+    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch", height=480)
+    if st.button("Open document review details", type="primary"):
+        navigate("Documents")
+        st.rerun()
+
+
+def grounded_chat_answer(question: str, report: dict[str, Any]) -> str:
+    lowered = question.lower()
+    findings = report.get("findings", [])
+    for finding in findings:
+        if finding["finding_id"].lower() in lowered:
+            return (
+                f"{finding['finding_id']} is a {finding['severity']} {finding['category']} finding in "
+                f"{finding['document']} ({finding['section']}). Current human-review status: {finding['status']}. "
+                f"Evidence: {finding['evidence']}"
+            )
+    for severity in SEVERITIES:
+        if severity.lower() in lowered:
+            matches = [item for item in findings if item["severity"] == severity]
+            ids = ", ".join(item["finding_id"] for item in matches) or "none"
+            return f"This review has {len(matches)} {severity.lower()} findings: {ids}."
+    if "document" in lowered:
+        names = [item["document_name"] for item in report.get("document_summaries", [])]
+        return f"The active review contains {len(names)} documents: {', '.join(names)}."
+    if "open" in lowered or "status" in lowered:
+        workflow = report["review_workflow"]
+        return (
+            f"The review is {workflow['status']} with {report['metrics']['open_findings']} open actions. "
+            f"Package readiness is {workflow['package_readiness']}."
+        )
+    return (
+        f"The active package is {report['package_name']} with {report['metrics']['documents']} documents and "
+        f"{report['metrics']['findings']} findings. Ask about a finding ID, severity, document, or review status."
+    )
+
+
+def render_chat(report: dict[str, Any] | None) -> None:
+    render_workspace_header("Chat with CSVQualReviewer", "Ask grounded questions about the active package. Answers use only the current review record.")
+    if not report:
+        render_no_review("Start or reopen a review before asking document-grounded questions.")
+        return
+    messages = st.session_state.setdefault(
+        "chat_messages",
+        [{"role": "assistant", "content": f"I’m grounded in {report['package_name']}. Ask about findings, documents, severity, or status."}],
+    )
+    for message in messages:
+        with st.chat_message(message["role"]):
+            st.write(message["content"])
+    if prompt := st.chat_input("Ask about the active review"):
+        messages.append({"role": "user", "content": prompt[:1000]})
+        messages.append({"role": "assistant", "content": grounded_chat_answer(prompt, report)})
+        st.rerun()
+    st.caption("Grounded review assistant · No external sources or model-generated approval decisions")
+
+
+def render_history(report: dict[str, Any] | None) -> None:
+    render_workspace_header("Run History", "Inspect review runs and reopen their original decision records.")
+    if not report:
+        render_no_review("No review runs have been created in this demo session.")
+        return
+    events = report.get("audit_events", [])
+    st.dataframe(
+        pd.DataFrame([{
+            "Run ID": report["review_id"],
+            "Package": report["package_name"],
+            "Status": report["review_workflow"]["status"],
+            "Documents": report["metrics"]["documents"],
+            "Findings": report["metrics"]["findings"],
+            "Audit events": len(events),
+        }]),
+        hide_index=True,
+        width="stretch",
+    )
+    if events:
+        with st.expander("Audit trail"):
+            st.dataframe(pd.DataFrame(events), hide_index=True, width="stretch")
+    if st.button("Reopen selected run", type="primary"):
+        navigate("Executive Summary")
+        st.rerun()
+
+
+def render_analytics(report: dict[str, Any] | None) -> None:
+    render_workspace_header("Feedback & Analytics", "Monitor review workload, disposition coverage, severity, and traceability quality.")
+    if not report:
+        render_no_review("Analytics will populate after the first validation package is reviewed.")
+        return
+    metrics = report["metrics"]
+    cols = st.columns(4)
+    cols[0].metric("Findings", metrics["findings"])
+    cols[1].metric("Open actions", metrics["open_findings"])
+    cols[2].metric("Documents", metrics["documents"])
+    cols[3].metric("Human decisions", metrics["findings"] - metrics["open_findings"])
+    left, right = st.columns(2)
+    left.markdown("#### Severity distribution")
+    left.bar_chart(pd.DataFrame.from_dict(metrics["severity_counts"], orient="index", columns=["Findings"]))
+    right.markdown("#### Human disposition coverage")
+    right.bar_chart(pd.DataFrame.from_dict(metrics["status_counts"], orient="index", columns=["Findings"]))
+    learning = report.get("feedback_learning", {})
+    st.info(
+        f"Controlled reviewer learning: {learning.get('available_precedents', 0)} prior decision examples were available to this run. "
+        "Current approved regulations and procedures always take precedence; conflicting feedback is escalated, never resolved automatically."
+    )
+
+
+REFERENCE_ROWS = [
+    {"Name": "Validation Plan Template", "Type": "Template", "Revision": "3.1", "Status": "Approved", "Owner": "Quality Systems"},
+    {"Name": "Computerized Systems Validation SOP", "Type": "SOP", "Revision": "5.2", "Status": "Effective", "Owner": "Quality Assurance"},
+    {"Name": "Approved IQ/OQ Example", "Type": "Golden Report", "Revision": "2.0", "Status": "Approved", "Owner": "Validation CoE"},
+    {"Name": "Data Integrity Review Guidance", "Type": "Guidance", "Revision": "1.4", "Status": "Effective", "Owner": "Compliance"},
+]
+
+
+def render_reference_library(page: str) -> None:
+    type_map = {"Templates": "Template", "SOPs": "SOP", "Golden Reports": "Golden Report", "Guidance Documents": "Guidance"}
+    rows = REFERENCE_ROWS if page == "All References" else [item for item in REFERENCE_ROWS if item["Type"] == type_map[page]]
+    render_workspace_header(page, "Controlled reference content with revision, lifecycle status, and accountable ownership.")
+    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+    st.caption("Demo reference inventory. Connect validated persistence before using this library as a production control.")
+
+
+def render_review_admin(user: dict[str, str]) -> None:
+    render_workspace_header("Review Administrator", "Manage organization-scoped users and review access.")
+    if user["role"] not in {"Review Administrator", "Platform Administrator"}:
+        st.markdown('<div class="access-denied"><strong>Access denied</strong><br>This page requires Review Administrator access.</div>', unsafe_allow_html=True)
+        return
+    users = st.session_state.setdefault("demo_users", [
+        {"Name": user["name"], "Email": user["email"], "Role": user["role"], "Status": "Active"},
+        {"Name": "Jane Cooper", "Email": "jane.cooper@example.com", "Role": "Reviewer", "Status": "Active"},
+    ])
+    st.dataframe(pd.DataFrame(users), hide_index=True, width="stretch")
+    with st.expander("Add demo user"):
+        with st.form("add_demo_user"):
+            name = st.text_input("User name")
+            email = st.text_input("User email")
+            role = st.selectbox("User role", ROLES)
+            add = st.form_submit_button("Add user", type="primary")
+        if add:
+            if not name.strip() or "@" not in email:
+                st.error("Enter a name and valid email address.")
+            elif any(item["Email"].lower() == email.strip().lower() for item in users):
+                st.error("That user already exists.")
+            else:
+                users.append({"Name": name.strip(), "Email": email.strip().lower(), "Role": role, "Status": "Invited"})
+                st.success(f"{email.strip().lower()} added to the demo directory.")
+                st.rerun()
+    st.caption("Demo directory only. Production user provisioning must be connected to the organization identity provider and audit store.")
+
+
+def render_platform_admin(user: dict[str, str]) -> None:
+    render_workspace_header("Platform Administrator", "Manage platform-wide controls and service configuration.")
+    if user["role"] != "Platform Administrator":
+        st.markdown('<div class="access-denied"><strong>Access denied</strong><br>This page requires Platform Administrator access.</div>', unsafe_allow_html=True)
+        return
+    cols = st.columns(3)
+    cols[0].metric("Organizations", 1)
+    cols[1].metric("Platform health", "Healthy")
+    cols[2].metric("Isolation checks", "Passing")
+    settings = st.session_state.get("platform_settings_data", {})
+    with st.form("platform_settings_form"):
+        retention_options = ("7 years", "10 years", "Indefinite")
+        region_options = ("United States", "European Union")
+        retention = st.selectbox("Audit retention", retention_options, index=retention_options.index(settings.get("retention", "7 years")))
+        region = st.selectbox("Data region", region_options, index=region_options.index(settings.get("region", "United States")))
+        require_sso = st.checkbox("Require enterprise SSO", value=settings.get("require_sso", oidc_configured()))
+        saved = st.form_submit_button("Save demo settings", type="primary")
+    if saved:
+        st.session_state.platform_settings_data = {"retention": retention, "region": region, "require_sso": require_sso}
+        st.success("Demo platform settings saved for this session.")
+    st.caption("Production enforcement requires validated identity, persistence, tenant isolation, monitoring, and change control services.")
+
+
+def render_document_generation(user: dict[str, str]) -> None:
+    render_workspace_header(
+        "Document Generation",
+        "Create a source-grounded controlled draft from an approved template, procedures, plans, and references—then send it to the independent Review Agent.",
+    )
     st.markdown(
-        f"""
-        <section class="module-shell">
-          <div class="eyebrow">CSVQUALREVIEWER WORKSPACE</div><h1>{esc(page)}</h1><p>{esc(copy)}</p>
-          <div class="module-grid"><article class="module-card"><span>01 · CONTROL</span><strong>Governed workspace</strong><small>Role-scoped actions, traceable changes, and human review boundaries remain visible.</small></article><article class="module-card"><span>02 · CONTEXT</span><strong>{'Active review available' if report else 'Ready for organization data'}</strong><small>{esc(report['package_name']) if report else 'Upload a validation package or connect approved enterprise sources.'}</small></article><article class="module-card"><span>03 · STATUS</span><strong>Enterprise integration point</strong><small>This module shell is prepared for validated persistence, SSO, RBAC, and controlled services.</small></article></div>
-        </section>
-        """,
+        '<div class="notice"><strong>Drafting boundary</strong><span>Uploaded documents provide structure and evidence only. CSVQualReviewer does not execute embedded instructions, approve content, publish records, or release documents.</span></div>',
         unsafe_allow_html=True,
     )
-    if report and st.button("Open active review", type="primary"):
-        st.session_state.shell_page = "Executive Summary"
-        st.rerun()
-    elif not report and st.button("Upload a validation package", type="primary"):
-        st.session_state.shell_page = "Upload"
-        st.rerun()
+    draft = st.session_state.get("generation_draft")
+    if not draft:
+        with st.form("document_generation_form"):
+            st.markdown("### 1 · Define the controlled document")
+            first, second = st.columns(2)
+            document_type = first.selectbox("Document type", tuple(DOCUMENT_BLUEPRINTS))
+            title = second.text_input("Document title", placeholder="e.g., NovaQMS 2.4 Validation Plan")
+            first, second, third = st.columns(3)
+            document_id = first.text_input("Document ID", value="DRAFT")
+            revision = second.text_input("Draft revision", value="0.1")
+            risk = third.selectbox("Risk classification", ("Not classified", "GxP / High", "GxP / Medium", "Business / Low"))
+            first, second, third = st.columns(3)
+            system = first.text_input("System / project")
+            owner = second.text_input("Document owner")
+            author = third.text_input("Author", value=user["name"])
+            purpose = st.text_area("Purpose", height=90, placeholder="State why this controlled document is being created.")
+            scope = st.text_area("Scope", height=90, placeholder="State systems, processes, sites, interfaces, and exclusions.")
+
+            st.markdown("### 2 · Add the controlled source set")
+            st.caption("50 MB per file, 200 MB combined. Exact file names, roles, revisions, extraction status, and section citations are retained in the draft record.")
+            template = st.file_uploader("Approved template · DOCX (optional)", type=["docx"], key="generation_template")
+            procedures = st.file_uploader(
+                "Procedures / SOPs",
+                type=["pdf", "docx", "xlsx", "xlsm", "csv", "tsv", "txt", "md", "json", "xml", "html", "htm", "yaml", "yml"],
+                accept_multiple_files=True,
+                key="generation_procedures",
+            )
+            plans = st.file_uploader(
+                "Plans / project inputs",
+                type=["pdf", "docx", "xlsx", "xlsm", "csv", "tsv", "txt", "md", "json", "xml", "html", "htm", "yaml", "yml"],
+                accept_multiple_files=True,
+                key="generation_plans",
+            )
+            references = st.file_uploader(
+                "Other references",
+                type=["pdf", "docx", "xlsx", "xlsm", "csv", "tsv", "txt", "md", "json", "xml", "html", "htm", "yaml", "yml"],
+                accept_multiple_files=True,
+                key="generation_references",
+            )
+            generate = st.form_submit_button("Generate controlled draft", type="primary", width="stretch")
+
+        demo, _ = st.columns([1, 2])
+        use_demo = demo.button("Use controlled demo sources", width="stretch")
+        if generate:
+            if not title.strip():
+                st.error("Enter a document title.")
+            else:
+                try:
+                    groups = [
+                        ("Template", [template] if template else []),
+                        ("Procedure", list(procedures or [])),
+                        ("Plan", list(plans or [])),
+                        ("Reference", list(references or [])),
+                    ]
+                    sources, payloads = generation_sources(groups) if any(files for _, files in groups) else ([], [])
+                    metadata = {
+                        "document_type": document_type,
+                        "title": title,
+                        "document_id": document_id,
+                        "revision": revision,
+                        "system": system,
+                        "owner": owner,
+                        "author": author,
+                        "purpose": purpose,
+                        "scope": scope,
+                        "risk_classification": risk,
+                    }
+                    st.session_state.generation_draft = generate_document(metadata, sources)
+                    st.session_state.generation_source_payloads = payloads
+                    st.session_state.generation_template_bytes = template.getvalue() if template else None
+                except ValueError as exc:
+                    st.error(str(exc))
+                else:
+                    st.rerun()
+        if use_demo:
+            metadata, sources, payloads = demo_generation_inputs()
+            metadata["author"] = user["name"]
+            st.session_state.generation_draft = generate_document(metadata, sources)
+            st.session_state.generation_source_payloads = payloads
+            st.session_state.generation_template_bytes = None
+            st.rerun()
+        return
+
+    metadata = draft["metadata"]
+    reviewed_count = sum(section["status"] == "Human Reviewed" for section in draft["sections"])
+    metrics = st.columns(4)
+    metrics[0].metric("Draft status", draft["status"])
+    metrics[1].metric("Sections reviewed", f"{reviewed_count} / {len(draft['sections'])}")
+    metrics[2].metric("Controlled sources", len(draft["sources"]))
+    metrics[3].metric("Revision events", len(draft["revision_history"]))
+    st.progress(reviewed_count / max(1, len(draft["sections"])), text="Human author-review progress")
+
+    editor, context = st.columns([1.45, .7], gap="large")
+    with editor:
+        st.markdown("### 3 · Review and edit each section")
+        section_id = st.selectbox(
+            "Draft section",
+            [section["section_id"] for section in draft["sections"]],
+            format_func=lambda value: next(
+                f"{item['number']}. {item['title']} · {item['status']}"
+                for item in draft["sections"] if item["section_id"] == value
+            ),
+        )
+        selected = next(section for section in draft["sections"] if section["section_id"] == section_id)
+        content = st.text_area(
+            "Section content",
+            value=selected["content"],
+            height=390,
+            key=f"generation_editor_{section_id}_{len(draft['revision_history'])}",
+        )
+        st.caption("Section provenance: " + (", ".join(selected["source_ids"]) or "No direct source match — author confirmation required"))
+        save, review, reopen = st.columns(3)
+        if save.button("Save section revision", width="stretch"):
+            try:
+                st.session_state.generation_draft = update_section(draft, section_id, content, user["name"], reviewed=False)
+            except ValueError as exc:
+                st.error(str(exc))
+            else:
+                st.rerun()
+        if review.button("Mark human reviewed", type="primary", width="stretch"):
+            try:
+                st.session_state.generation_draft = update_section(draft, section_id, content, user["name"], reviewed=True)
+            except ValueError as exc:
+                st.error(str(exc))
+            else:
+                st.rerun()
+        if reopen.button("Reopen section", width="stretch"):
+            st.session_state.generation_draft = update_section(draft, section_id, content, user["name"], reviewed=False)
+            st.rerun()
+
+    with context:
+        st.markdown("### Draft controls")
+        st.write(f"**{metadata['title']}**")
+        st.caption(f"{metadata['document_type']} · {metadata['document_id']} · revision {metadata['revision']}")
+        if draft["assumptions"]:
+            with st.expander(f"Open author actions ({len(draft['assumptions'])})", expanded=True):
+                for assumption in draft["assumptions"]:
+                    st.write("• " + assumption)
+        try:
+            generated_docx = build_docx(draft, st.session_state.get("generation_template_bytes"))
+        except Exception as exc:
+            st.error(f"The Word draft could not be assembled: {exc}")
+        else:
+            st.download_button(
+                "Download controlled Word draft",
+                generated_docx,
+                f"{slug(metadata['title'])}-{metadata['revision']}.docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                type="primary",
+                width="stretch",
+            )
+        st.download_button(
+            "Download generation trace JSON",
+            json.dumps(draft, indent=2),
+            f"{slug(metadata['title'])}-{draft['draft_id']}.json",
+            "application/json",
+            width="stretch",
+        )
+        if st.button("Send draft to Review Agent", width="stretch"):
+            primary = {
+                "name": f"{slug(metadata['title'])}-generated-draft.md",
+                "content": document_text(draft),
+                "encoding": "text",
+            }
+            supporting = list(st.session_state.get("generation_source_payloads", []))[:20]
+            with st.spinner("Starting an independent review of the generated draft…"):
+                execute_review(f"Independent review · {metadata['title']}", [primary, *supporting])
+            st.rerun()
+        if reviewed_count < len(draft["sections"]):
+            st.warning("The draft can be independently reviewed now, but author review is not complete.")
+        if st.button("Start a new draft", width="stretch"):
+            for key in [item for item in st.session_state.keys() if item.startswith("generation_")]:
+                st.session_state.pop(key, None)
+            st.rerun()
+
+    st.markdown("### Source and generation provenance")
+    if draft["sources"]:
+        st.dataframe(pd.DataFrame(draft["sources"]), hide_index=True, width="stretch")
+    else:
+        st.info("No external controlled sources were supplied. Every section requiring source confirmation is identified in the draft.")
+    with st.expander("Revision history"):
+        st.dataframe(pd.DataFrame(draft["revision_history"]), hide_index=True, width="stretch")
+
+
+def render_module_shell(page: str, report: dict[str, Any] | None, user: dict[str, str]) -> None:
+    if page == "My Reviews":
+        render_my_reviews(report)
+    elif page == "All Documents":
+        render_all_documents(report)
+    elif page == "Chat":
+        render_chat(report)
+    elif page == "Run History":
+        render_history(report)
+    elif page == "Feedback & Analytics":
+        render_analytics(report)
+    elif page == "Document Generation":
+        render_document_generation(user)
+    elif page in {"All References", "Templates", "SOPs", "Golden Reports", "Guidance Documents"}:
+        render_reference_library(page)
+    elif page == "Review Administrator":
+        render_review_admin(user)
+    elif page == "Platform Administrator":
+        render_platform_admin(user)
+    elif page in {"Executive Summary", "Documents", "Findings", "Traceability", "Redlines", "Review Decisions"}:
+        render_workspace_header(page, "This destination requires an active review package.")
+        render_no_review("Upload a validation package before opening review-specific content.")
+    else:
+        render_workspace_header("Page not found", "The requested destination is not available to this account.")
 
 
 def render_header(report: dict[str, Any], title: str, copy: str) -> None:
@@ -630,13 +1469,21 @@ def render_summary(report: dict[str, Any]) -> None:
         unsafe_allow_html=True,
     )
     metrics = report["metrics"]
-    cols = st.columns(6)
-    cols[0].metric("Documents", metrics["documents"], help="Documents reviewed in this run")
-    cols[1].metric("Total findings", metrics["findings"])
-    cols[2].metric("Critical", metrics["severity_counts"]["Critical"])
-    cols[3].metric("Major", metrics["severity_counts"]["Major"])
-    cols[4].metric("Open actions", metrics["open_findings"])
-    cols[5].metric("Needs SME", metrics["status_counts"]["Needs SME Review"])
+    severity_counts = metrics.get("severity_counts", {})
+    status_counts = metrics.get("status_counts", {})
+    first_row = st.columns(6)
+    first_row[0].metric("Documents", metrics.get("documents", 0), help="Documents reviewed in this run")
+    first_row[1].metric("Total findings", metrics.get("findings", 0))
+    first_row[2].metric("Critical", severity_counts.get("Critical", 0))
+    first_row[3].metric("Major", severity_counts.get("Major", 0))
+    first_row[4].metric("Minor", severity_counts.get("Minor", 0))
+    first_row[5].metric("Observations", severity_counts.get("Observation", 0))
+    second_row = st.columns(5)
+    second_row[0].metric("Open actions", metrics.get("open_findings", 0))
+    second_row[1].metric("Accepted", status_counts.get("Accepted", 0))
+    second_row[2].metric("Rejected", status_counts.get("Rejected", 0))
+    second_row[3].metric("Needs SME", status_counts.get("Needs SME Review", 0))
+    second_row[4].metric("Overall status", workflow.get("status", "Not Available"))
 
     left, right = st.columns([1.55, .7], gap="large")
     with left:
@@ -685,6 +1532,14 @@ def render_summary(report: dict[str, Any]) -> None:
             st.dataframe(pd.DataFrame(rows, columns=["Field", "Value"]), hide_index=True, width="stretch")
 
 
+def clear_finding_filters() -> None:
+    for key in (
+        "finding_search", "severity_filter", "category_filter", "document_filter",
+        "status_filter", "confidence_filter", "finding_sort", "findings_page",
+    ):
+        st.session_state.pop(key, None)
+
+
 def filtered_findings(report: dict[str, Any]) -> list[dict[str, Any]]:
     findings = report["findings"]
     query = st.text_input("Search findings", placeholder="ID, title, text, document, category, or section", key="finding_search").strip().lower()
@@ -694,7 +1549,10 @@ def filtered_findings(report: dict[str, Any]) -> list[dict[str, Any]]:
     documents = f3.multiselect("Document", sorted({reference["document_name"] for item in findings for reference in item.get("affected_documents", [])}), default=[], key="document_filter")
     statuses = f4.multiselect("Status", FINDING_STATUSES, default=[], key="status_filter")
     confidence = f5.multiselect("Confidence", ("High (≥90%)", "Medium (70–89%)", "Low (<70%)", "Not Available"), default=[], key="confidence_filter")
-    sort_choice = st.selectbox("Sort findings", ("Unresolved risk", "Severity", "Document", "Finding ID", "Confidence", "Status", "Newest", "Oldest"), key="finding_sort")
+    sort_col, clear_col = st.columns([4, 1])
+    sort_choice = sort_col.selectbox("Sort findings", ("Unresolved risk", "Severity", "Document", "Finding ID", "Confidence", "Status", "Newest", "Oldest"), key="finding_sort")
+    clear_col.markdown("<div style='height:1.78rem'></div>", unsafe_allow_html=True)
+    clear_col.button("Clear filters", on_click=clear_finding_filters, width="stretch")
 
     def confidence_label(finding: dict[str, Any]) -> str:
         score = finding.get("confidence_score")
@@ -752,9 +1610,15 @@ def render_decision_editor(report: dict[str, Any], finding: dict[str, Any], pref
     st.markdown("### Human reviewer decision")
     st.caption("The source text and original AI recommendation remain immutable. Accepted and Resolved are distinct states.")
     current = finding["status"] if finding["status"] != "Open" else "Select a disposition"
-    disposition = st.selectbox("Disposition", DECISION_OPTIONS, index=DECISION_OPTIONS.index(current), key=f"{prefix}_disposition")
+    disposition = st.selectbox(
+        "Disposition", DECISION_OPTIONS, index=DECISION_OPTIONS.index(current),
+        key=f"{prefix}_disposition", on_change=mark_decision_dirty, args=(prefix,),
+    )
     reviewer_default = finding.get("reviewer") if finding.get("reviewer") not in {"", "Not Available"} else st.session_state.get("reviewer_name", "")
-    reviewer = st.text_input("Reviewer name / role", value=reviewer_default, key=f"{prefix}_reviewer")
+    reviewer = st.text_input(
+        "Reviewer name / role", value=reviewer_default, key=f"{prefix}_reviewer",
+        on_change=mark_decision_dirty, args=(prefix,),
+    )
     if reviewer:
         st.session_state.reviewer_name = reviewer
     comment = st.text_area(
@@ -762,6 +1626,8 @@ def render_decision_editor(report: dict[str, Any], finding: dict[str, Any], pref
         value=finding.get("reviewer_comment", ""),
         placeholder="Record the rationale, supporting evidence, context, or SME question.",
         key=f"{prefix}_comment",
+        on_change=mark_decision_dirty,
+        args=(prefix,),
     )
     modified = ""
     modification_reason = ""
@@ -773,19 +1639,33 @@ def render_decision_editor(report: dict[str, Any], finding: dict[str, Any], pref
             value=finding.get("modified_recommendation") or finding["proposed_text"],
             height=160,
             key=f"{prefix}_modified",
+            on_change=mark_decision_dirty,
+            args=(prefix,),
         )
         modification_reason = st.selectbox(
             "Modification reason",
             ("", "Technical Accuracy", "Procedure Alignment", "Regulatory Interpretation", "Clarity", "Business Context", "Scope Correction", "Other"),
             key=f"{prefix}_mod_reason",
+            on_change=mark_decision_dirty,
+            args=(prefix,),
         )
     if disposition == "Rejected":
         rejection_reason = st.selectbox(
             "Structured rejection reason",
             ("", "Not Applicable", "Incorrect Interpretation", "Requirement Already Addressed", "Duplicate Finding", "Insufficient Evidence", "Incorrect Severity", "Incorrect Recommendation", "Other"),
             key=f"{prefix}_reject_reason",
+            on_change=mark_decision_dirty,
+            args=(prefix,),
         )
-        duplicate_of = st.text_input("Duplicate of finding (optional)", placeholder="e.g., F-002", key=f"{prefix}_duplicate")
+        duplicate_of = st.text_input(
+            "Duplicate of finding (optional)", placeholder="e.g., F-002", key=f"{prefix}_duplicate",
+            on_change=mark_decision_dirty, args=(prefix,),
+        )
+    if st.session_state.get("unsaved_decision_prefix") == prefix:
+        st.warning("You have unsaved changes in this reviewer decision. Save or discard them before navigating away.")
+        if st.button("Discard unsaved changes", key=f"{prefix}_discard"):
+            clear_decision_state(prefix)
+            st.rerun()
     if st.button("Save reviewer decision", type="primary", disabled=disposition == "Select a disposition", key=f"{prefix}_save"):
         try:
             updated, _ = session_store().decide(
@@ -806,7 +1686,30 @@ def render_decision_editor(report: dict[str, Any], finding: dict[str, Any], pref
         except ValueError as exc:
             st.error(str(exc))
         else:
+            clear_decision_state(prefix)
             st.session_state.report = updated
+            feedback_mapping = {
+                "Accepted": "Accept",
+                "Rejected": "Reject",
+                "Modified": "Accept with Modification",
+            }
+            if disposition in feedback_mapping:
+                try:
+                    session_feedback_store().add(
+                        {
+                            "review_id": report["review_id"],
+                            "finding": finding,
+                            "reviewer_decision": feedback_mapping[disposition],
+                            "reviewer_rationale": comment or modification_reason,
+                            "reviewer_name_role": reviewer,
+                            "preferred_wording": modified,
+                            "final_resolution": disposition,
+                        }
+                    )
+                except ValueError:
+                    # The decision record is authoritative; optional learning
+                    # feedback must never invalidate a saved disposition.
+                    pass
             st.success(f"{finding['finding_id']} saved as {disposition}.")
             st.rerun()
 
@@ -816,6 +1719,11 @@ def render_finding_detail(report: dict[str, Any], finding: dict[str, Any], prefi
         st.markdown(f'<div class="finding-head">{finding_badges(finding)}</div>', unsafe_allow_html=True)
         st.markdown(f'<div class="finding-title">{esc(finding["title"])}</div>', unsafe_allow_html=True)
         st.markdown(f'<div class="finding-meta">{esc(finding["document"])} · {esc(finding["section"])}</div>', unsafe_allow_html=True)
+        score = finding.get("confidence_score")
+        if score is not None and score < 70:
+            st.warning(
+                f"Human Verification Recommended — AI confidence is {score}%. Confirm the evidence, applicability, and review basis before disposition."
+            )
         st.markdown("#### Finding")
         st.write(finding["finding"])
         st.markdown(f'<div class="detail-block"><div class="detail-label">Evidence</div><div class="source-text">{esc(finding["evidence"])}</div></div>', unsafe_allow_html=True)
@@ -853,10 +1761,80 @@ def render_findings(report: dict[str, Any]) -> None:
         st.info("No findings match the selected filters.")
         return
     selected_ids = [finding["finding_id"] for finding in findings]
+    with st.expander("Bulk reviewer actions"):
+        st.caption("Bulk acceptance, rejection, modification, and resolution are intentionally disabled. Only safe triage actions are available.")
+        bulk_ids = st.multiselect("Selected findings", selected_ids, key="bulk_finding_ids")
+        if bulk_ids:
+            st.download_button(
+                "Export selected findings",
+                findings_csv([finding for finding in findings if finding["finding_id"] in bulk_ids]),
+                f"{slug(report['package_name'])}-selected-findings.csv",
+                "text/csv",
+                width="stretch",
+                on_click=record_controlled_export,
+                args=(report["review_id"], "Selected findings CSV"),
+            )
+        bulk_action = st.selectbox("Safe bulk action", ("Select an action", "Deferred", "Needs SME Review"), key="bulk_action")
+        bulk_reviewer = st.text_input("Reviewer name / role", value=st.session_state.get("reviewer_name", ""), key="bulk_reviewer")
+        bulk_comment = st.text_area(
+            "Shared rationale / SME question",
+            placeholder="Required for the audit trail and for SME escalation.",
+            key="bulk_comment",
+        )
+        bulk_confirm = st.checkbox(
+            f"I confirm this action applies to all {len(bulk_ids)} selected findings.",
+            key="bulk_confirm",
+            disabled=not bulk_ids,
+        )
+        if st.button(
+            "Apply safe bulk action",
+            type="primary",
+            disabled=not bulk_ids or bulk_action == "Select an action" or not bulk_confirm,
+            key="bulk_apply",
+        ):
+            if not bulk_reviewer.strip():
+                st.error("Enter the accountable reviewer name or role.")
+            elif not bulk_comment.strip():
+                st.error("Record a shared rationale or SME question for the bulk action.")
+            else:
+                updated_report = session_store().load(report["review_id"])
+                errors: list[str] = []
+                for finding_id in bulk_ids:
+                    stored = next(item for item in updated_report["findings"] if item["finding_id"] == finding_id)
+                    try:
+                        updated_report, _ = session_store().decide(
+                            report["review_id"],
+                            finding_id,
+                            {
+                                "disposition": bulk_action,
+                                "reviewer": bulk_reviewer,
+                                "reviewer_comment": bulk_comment,
+                                "expected_updated_at": stored.get("updated_at"),
+                            },
+                        )
+                    except ValueError as exc:
+                        errors.append(f"{finding_id}: {exc}")
+                st.session_state.report = updated_report
+                if errors:
+                    st.error("Some actions were not saved: " + "; ".join(errors))
+                else:
+                    st.success(f"{len(bulk_ids)} findings updated to {bulk_action}.")
+                    st.session_state.bulk_finding_ids = []
+                    st.session_state.bulk_confirm = False
+                    st.rerun()
     current = st.session_state.get("selected_finding")
     if current not in selected_ids:
         current = selected_ids[0]
-    selected_id = st.selectbox("Focused finding", selected_ids, index=selected_ids.index(current), key="focused_finding")
+    has_unsaved_decision = bool(st.session_state.get("unsaved_decision_prefix"))
+    selected_id = st.selectbox(
+        "Focused finding",
+        selected_ids,
+        index=selected_ids.index(current),
+        key="focused_finding",
+        disabled=has_unsaved_decision,
+        help="Save or discard the current reviewer decision before changing findings."
+        if has_unsaved_decision else None,
+    )
     st.session_state.selected_finding = selected_id
     selected = next(finding for finding in findings if finding["finding_id"] == selected_id)
     render_finding_detail(report, selected, f"finding_{selected_id}")
@@ -911,6 +1889,18 @@ def render_documents(report: dict[str, Any]) -> None:
                 review = reviews.get(summary["document_name"], {})
                 confidence = review.get("review_confidence", {})
                 st.progress((confidence.get("score") or 0) / 100, text=f"Review confidence: {confidence.get('score', 'Not Available')}{'%' if confidence.get('score') is not None else ''}")
+                if st.button("Open document findings", key=f"open_document_{slug(summary['document_name'])}", width="stretch"):
+                    st.session_state.document_filter = [summary["document_name"]]
+                    related = [
+                        finding["finding_id"] for finding in report["findings"]
+                        if summary["document_name"] in {
+                            item.get("document_name") for item in finding.get("affected_documents", [])
+                        }
+                    ]
+                    if related:
+                        st.session_state.selected_finding = related[0]
+                    navigate("Findings")
+                    st.rerun()
 
 
 def render_traceability(report: dict[str, Any]) -> None:
@@ -930,7 +1920,14 @@ def render_traceability(report: dict[str, Any]) -> None:
             }
         )
     st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch", height=560)
-    st.download_button("Download traceability CSV", traceability_csv(report), f"{slug(report['package_name'])}-traceability.csv", "text/csv")
+    st.download_button(
+        "Download traceability CSV",
+        traceability_csv(report),
+        f"{slug(report['package_name'])}-traceability.csv",
+        "text/csv",
+        on_click=record_controlled_export,
+        args=(report["review_id"], "Traceability CSV"),
+    )
 
 
 def redline_export(report: dict[str, Any], document: dict[str, Any], findings: list[dict[str, Any]]) -> bytes:
@@ -988,6 +1985,8 @@ def render_redlines(report: dict[str, Any]) -> None:
         redline_export(report, document, related),
         f"{slug(document['document_name'])}-reviewed-redline.html",
         "text/html",
+        on_click=record_controlled_export,
+        args=(report["review_id"], f"Redlined document: {document['document_name']}"),
     )
 
 
@@ -1011,23 +2010,42 @@ def render_decisions(report: dict[str, Any]) -> None:
     ]
     if rows:
         st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch", height=520)
-        selected = st.selectbox("Decision detail", [finding["finding_id"] for finding in decided])
+        has_unsaved_decision = bool(st.session_state.get("unsaved_decision_prefix"))
+        selected = st.selectbox(
+            "Decision detail",
+            [finding["finding_id"] for finding in decided],
+            disabled=has_unsaved_decision,
+            help="Save or discard the current reviewer decision before changing findings."
+            if has_unsaved_decision else None,
+        )
         render_finding_detail(report, next(finding for finding in decided if finding["finding_id"] == selected), f"decision_{selected}")
     else:
         st.info("No reviewer decisions match the selected status filters. Open Findings to record a disposition.")
-    st.download_button("Download reviewer decision log", decisions_csv(report), f"{slug(report['package_name'])}-decision-log.csv", "text/csv")
+    st.download_button(
+        "Download reviewer decision log",
+        decisions_csv(report),
+        f"{slug(report['package_name'])}-decision-log.csv",
+        "text/csv",
+        on_click=record_controlled_export,
+        args=(report["review_id"], "Decision log"),
+    )
 
+
+user = authenticated_user()
+if user is None:
+    render_login()
+    st.stop()
 
 report = current_report()
-page = render_sidebar(report)
-render_topbar()
+page = render_sidebar(report, user)
+render_topbar(user, report)
 
 if page == "Home":
-    render_dashboard(report)
+    render_dashboard(report, user)
 elif page == "Upload":
     render_upload()
 elif report is None:
-    render_module_shell(page, report)
+    render_module_shell(page, report, user)
 elif page == "Executive Summary":
     render_summary(report)
 elif page == "Findings":
@@ -1041,4 +2059,4 @@ elif page == "Redlines":
 elif page == "Review Decisions":
     render_decisions(report)
 else:
-    render_module_shell(page, report)
+    render_module_shell(page, report, user)

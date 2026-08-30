@@ -14,6 +14,16 @@ from .models import FINDING_STATUSES
 from .workflow import refresh_review_state
 
 
+_LOCK_REGISTRY_GUARD = Lock()
+_DIRECTORY_LOCKS: dict[Path, Lock] = {}
+
+
+def _shared_directory_lock(directory: Path) -> Lock:
+    key = directory.resolve()
+    with _LOCK_REGISTRY_GUARD:
+        return _DIRECTORY_LOCKS.setdefault(key, Lock())
+
+
 class ReviewNotFoundError(ValueError):
     pass
 
@@ -33,11 +43,11 @@ def _limited(value: Any, length: int) -> str:
 
 
 class ReviewStore:
-    """Atomic JSON persistence suitable for the app's current single-user scope."""
+    """Atomic JSON persistence for one application process and tenant directory."""
 
     def __init__(self, directory: Path):
         self.directory = directory
-        self._lock = Lock()
+        self._lock = _shared_directory_lock(directory)
 
     def _path(self, review_id: str) -> Path:
         safe_id = re.sub(r"[^A-Za-z0-9_.-]", "", review_id)
@@ -222,4 +232,3 @@ class ReviewStore:
                 }
             )
             self._write_unlocked(report)
-

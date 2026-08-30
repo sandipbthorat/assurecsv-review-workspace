@@ -18,6 +18,16 @@ from uuid import uuid4
 from .models import Finding
 
 
+_LOCK_REGISTRY_GUARD = Lock()
+_FILE_LOCKS: dict[Path, Lock] = {}
+
+
+def _shared_file_lock(path: Path) -> Lock:
+    key = path.resolve()
+    with _LOCK_REGISTRY_GUARD:
+        return _FILE_LOCKS.setdefault(key, Lock())
+
+
 ALLOWED_DECISIONS = {
     "Accept",
     "Accept with Modification",
@@ -47,7 +57,7 @@ REJECTION_DECISIONS = {"Reject", "Mark as False Positive"}
 class FeedbackStore:
     def __init__(self, path: Path):
         self.path = path
-        self._lock = Lock()
+        self._lock = _shared_file_lock(path)
 
     def load(self) -> list[dict[str, Any]]:
         with self._lock:
@@ -214,4 +224,3 @@ def apply_feedback_precedents(
             finding.confidence_score = min(99, finding.confidence_score + min(4, len(accepted)))
         active.append(finding)
     return active, considerations, conflicts
-

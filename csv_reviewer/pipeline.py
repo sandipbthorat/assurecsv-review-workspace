@@ -14,8 +14,9 @@ from .feedback import apply_feedback_precedents
 from .models import Document, Finding, SEVERITIES, SEVERITY_ORDER, add_finding
 
 
-REVIEW_AGENT_VERSION = "CSVQualReviewer deterministic assurance engine v1.0.0"
-REVIEW_RULE_SET_VERSION = "CSVQualReviewer-Review-Rules-v1.0.0"
+REVIEW_AGENT_VERSION = "CSVQualReviewer deterministic assurance engine v1.1.0"
+REVIEW_RULE_SET_VERSION = "CSVQualReviewer-Review-Rules-v1.1.0"
+KNOWLEDGE_BASE_VERSION = "Framework index 2026.08 — citation text requires source verification"
 
 
 DOCUMENT_CLASSIFIERS: dict[str, tuple[str, ...]] = {
@@ -56,15 +57,54 @@ DOCUMENT_CLASSIFIERS: dict[str, tuple[str, ...]] = {
         "supplier criticality",
         "supplier qualification",
     ),
+    "Backup and Recovery Plan": (
+        "backup and recovery plan",
+        "backup restore procedure",
+        "restore verification",
+        "recovery point objective",
+    ),
+    "Disaster Recovery / Business Continuity Plan": (
+        "disaster recovery plan",
+        "business continuity plan",
+        "recovery time objective",
+        "continuity exercise",
+    ),
+    "Training Qualification Record": (
+        "training qualification record",
+        "training completion record",
+        "training curriculum",
+        "qualified personnel",
+    ),
     "Installation Qualification": ("installation qualification", "iq protocol", "iq-"),
     "Operational Qualification": ("operational qualification", "oq protocol", "oq-"),
     "Performance Qualification": ("performance qualification", "pq protocol", "pq-"),
     "User Acceptance Testing": ("user acceptance test", "uat protocol", "uat-"),
+    "Regression Test Evidence": ("regression test", "regression suite", "regression protocol"),
+    "Interface Test Evidence": ("interface test", "integration interface test", "interface verification"),
+    "Data Migration Test Evidence": ("migration test", "migration reconciliation test", "data conversion verification"),
+    "Security / Electronic Signature Test Evidence": (
+        "security test",
+        "electronic signature test",
+        "authority check test",
+        "access control test",
+    ),
+    "Automated / Unit / Integration Test Evidence": (
+        "unit test",
+        "automated test",
+        "integration test",
+        "continuous integration test",
+    ),
     "Traceability Matrix": ("traceability matrix", "requirements traceability", "rtm"),
     "Defect / Deviation Log": ("defect log", "deviation log", "exception log", "def-", "dev-"),
     "Validation Summary Report": ("validation summary report", "validation conclusion", "release recommendation", "vsr"),
     "Procedure / SOP": ("standard operating procedure", "procedure number", "work instruction", "sop-"),
     "Test Evidence": ("test script", "test execution", "expected result", "actual result", "test case"),
+    "Release / Deployment Record": (
+        "release record",
+        "deployment record",
+        "release notes",
+        "production deployment",
+    ),
     "System Description": ("system information", "system description", "intended use", "hosting model"),
     "Change Control": ("change control", "change request", "validation impact", "rollback plan"),
     "Periodic Review": ("periodic review", "continued validated state", "review period"),
@@ -123,6 +163,24 @@ DOCUMENT_REVIEW_LENSES: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
         ("supplier criticality", ("criticality",)), ("quality system/SDLC", ("quality system", "sdlc", "development")),
         ("testing/releases", ("testing", "release control")), ("support/continuity", ("support", "business continuity", "availability")),
     ),
+    "Backup and Recovery Plan": (
+        ("backup scope and frequency", ("backup scope", "backup frequency", "schedule")),
+        ("retention and protection", ("retention", "encryption", "protected")),
+        ("restore verification", ("restore test", "restore verification", "recovery test")),
+        ("ownership and monitoring", ("owner", "monitoring", "alert")),
+    ),
+    "Disaster Recovery / Business Continuity Plan": (
+        ("business impact and scope", ("business impact", "critical process", "scope")),
+        ("recovery objectives", ("recovery time objective", "rto", "recovery point objective", "rpo")),
+        ("roles and escalation", ("roles", "escalation", "communication")),
+        ("exercise and evidence", ("exercise", "test", "evidence", "lessons learned")),
+    ),
+    "Training Qualification Record": (
+        ("learner identity", ("learner", "employee", "user")),
+        ("required curriculum", ("curriculum", "required training", "course")),
+        ("completion and competence", ("completion", "assessment", "qualified", "competence")),
+        ("approval and date", ("approved", "signature", "completion date")),
+    ),
     "Installation Qualification": (
         ("software version", ("version",)), ("environment/platform", ("environment", "platform", "operating system")),
         ("configuration/connectivity", ("configuration", "connectivity")), ("backup/services", ("backup", "service account", "service")),
@@ -138,6 +196,36 @@ DOCUMENT_REVIEW_LENSES: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
     "User Acceptance Testing": (
         ("business users", ("business user", "tester")), ("intended workflows", ("workflow", "end-to-end")),
         ("expected/actual results", ("expected result", "actual result")), ("objective evidence", ("evidence", "attachment")),
+    ),
+    "Regression Test Evidence": (
+        ("change impact linkage", ("change", "impact", "regression scope")),
+        ("test identifiers", ("test id", "tc-", "reg-")),
+        ("expected/actual results", ("expected result", "actual result")),
+        ("evidence and disposition", ("evidence", "attachment", "pass", "fail")),
+    ),
+    "Interface Test Evidence": (
+        ("endpoint and direction", ("source", "destination", "endpoint", "direction")),
+        ("mapping and transformation", ("mapping", "transformation", "field")),
+        ("negative and recovery cases", ("invalid", "reject", "retry", "recovery")),
+        ("reconciliation evidence", ("reconciliation", "record count", "evidence")),
+    ),
+    "Data Migration Test Evidence": (
+        ("source-to-target scope", ("source", "target", "migration scope")),
+        ("record-count reconciliation", ("record count", "reconciliation", "control total")),
+        ("data-quality exceptions", ("exception", "reject", "transformation error")),
+        ("approval and rollback", ("approval", "rollback", "cutover")),
+    ),
+    "Security / Electronic Signature Test Evidence": (
+        ("role and authority checks", ("role", "authority check", "unauthorized")),
+        ("authentication challenge", ("authentication", "password", "session")),
+        ("signature manifestation/linking", ("signature manifestation", "signature linking", "electronic signature")),
+        ("audit evidence", ("audit trail", "evidence", "attachment")),
+    ),
+    "Automated / Unit / Integration Test Evidence": (
+        ("version and build linkage", ("build", "commit", "version")),
+        ("test inventory and result", ("test", "passed", "failed", "coverage")),
+        ("failure investigation", ("failure", "defect", "investigation")),
+        ("retained execution evidence", ("log", "report", "artifact", "evidence")),
     ),
     "Traceability Matrix": (
         ("requirements", ("urs-", "requirement")), ("risks", ("risk", "ra-")),
@@ -169,6 +257,12 @@ DOCUMENT_REVIEW_LENSES: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
         ("retirement scope", ("retirement scope", "decommission")), ("retention/archive", ("retention", "archive")),
         ("retrieval/protection", ("retrieval", "protected")), ("access/interfaces", ("access termination", "interface")),
         ("approvals", ("approval",)),
+    ),
+    "Release / Deployment Record": (
+        ("approved version and scope", ("version", "release scope", "approved")),
+        ("deployment steps and verification", ("deployment", "verification", "smoke test")),
+        ("configuration baseline", ("configuration", "baseline", "checksum")),
+        ("rollback and approvals", ("rollback", "approval", "release authorization")),
     ),
 }
 
@@ -1789,8 +1883,8 @@ def review_package(
             "review_run_id": review_run_id,
             "review_agent_version": REVIEW_AGENT_VERSION,
             "prompt_rule_set_version": REVIEW_RULE_SET_VERSION,
-            "knowledge_base_version": "Not Available",
-            "procedure_policy_baseline": "Not Available",
+            "knowledge_base_version": KNOWLEDGE_BASE_VERSION,
+            "procedure_policy_baseline": "Package-supplied controlled procedures; otherwise Not Available",
             "review_date_time": generated_at.isoformat(),
             "reviewer": "Not Available",
             "documents_reviewed": len(documents),

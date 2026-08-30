@@ -21,6 +21,48 @@ def review(files: dict[str, str], name: str = "Test package") -> dict:
 
 
 class ValidationReviewPipelineTests(unittest.TestCase):
+    def test_specialized_assurance_documents_are_classified_and_lensed(self) -> None:
+        result = review(
+            {
+                "backup-plan.txt": """
+                    Backup and Recovery Plan
+                    Backup Scope: regulated records
+                    Backup Frequency: daily
+                    Retention: seven years, encrypted and protected
+                    Restore Test: quarterly restore verification with retained evidence
+                    Owner: Platform Operations; monitoring and alert response are documented.
+                """,
+                "interface-test.txt": """
+                    Interface Test Evidence
+                    Source: QMS; Destination: ERP; Endpoint: /disposition
+                    Mapping and transformation fields are verified.
+                    Invalid records are rejected and retry recovery is challenged.
+                    Reconciliation: record count and evidence attachment IF-001-E1.
+                    Expected Result: accepted records reconcile. Actual Result: records reconciled. Result: Pass.
+                """,
+                "release-record.txt": """
+                    Release Record
+                    Version: 4.1; Release Scope: approved configuration
+                    Deployment verification and smoke test passed.
+                    Configuration baseline checksum retained.
+                    Rollback and release authorization approval recorded.
+                """,
+            }
+        )
+        document_types = {
+            item["document_specific_assessment"]["document_type"]
+            for item in result["detailed_document_review"]
+        }
+        self.assertIn("Backup and Recovery Plan", document_types)
+        self.assertIn("Interface Test Evidence", document_types)
+        self.assertIn("Release / Deployment Record", document_types)
+        detailed = {
+            item["document_specific_assessment"]["document_type"]: item
+            for item in result["detailed_document_review"]
+        }
+        self.assertGreater(detailed["Backup and Recovery Plan"]["document_specific_assessment"]["areas_evaluated"], 0)
+        self.assertGreater(detailed["Interface Test Evidence"]["document_specific_assessment"]["areas_evaluated"], 0)
+
     def test_complete_low_risk_package_can_be_accepted(self) -> None:
         result = review(
             {
